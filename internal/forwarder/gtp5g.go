@@ -612,7 +612,7 @@ func (g *Gtp5g) newForwardingParameter(ies []*ie.IE) (nl.AttrList, error) {
 			v, err := pfcp.ParseOuterHeaderCreation(x.Payload)
 			if err != nil {
 				g.log.Warnf("Invalid OuterHeaderCreation IE: %v", err)
-				return nil, err
+				break
 			}
 			var hc nl.AttrList
 			hc = append(hc, nl.Attr{
