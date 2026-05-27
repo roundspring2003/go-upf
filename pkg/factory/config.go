@@ -32,13 +32,18 @@ type Pfcp struct {
 }
 
 type Gtpu struct {
-	Forwarder string   `yaml:"forwarder" valid:"required,in(gtp5g)"`
-	IfList    []IfInfo `yaml:"ifList"    valid:"optional"`
+	Forwarder    string        `yaml:"forwarder"    valid:"required,in(gtp5g)"`
+	XDPCPUPolicy *XDPCPUPolicy `yaml:"xdpCpuPolicy" valid:"required"`
+	IfList       []IfInfo      `yaml:"ifList"       valid:"optional"`
+}
+
+type XDPCPUPolicy struct {
+	ReservedPrefixCount uint32 `yaml:"reservedPrefixCount" valid:"required"`
 }
 
 type IfInfo struct {
 	Addr   string `yaml:"addr"   valid:"required,host"`
-	Type   string `yaml:"type"   valid:"required,in(N3|N9)"`
+	Type   string `yaml:"type"   valid:"required,in(N3|N6|N9)"`
 	Name   string `yaml:"name"   valid:"optional"`
 	IfName string `yaml:"ifname" valid:"optional"`
 	MTU    uint32 `yaml:"mtu"    valid:"optional"`

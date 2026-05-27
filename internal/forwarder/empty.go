@@ -47,6 +47,30 @@ func (Empty) RemoveQER(uint64, *ie.IE) error {
 	return nil
 }
 
+func (Empty) UpdateULFlowQoS(QoSULFlowKey, QoSFlowInfo) error {
+	return nil
+}
+
+func (Empty) DeleteULFlowQoS(QoSULFlowKey) error {
+	return nil
+}
+
+func (Empty) UpdateDLExactFlowQoS(QoSDLFlowKey, QoSFlowInfo) error {
+	return nil
+}
+
+func (Empty) DeleteDLExactFlowQoS(QoSDLFlowKey) error {
+	return nil
+}
+
+func (Empty) UpdateDLDefaultQoS(uint32, QoSFlowInfo) error {
+	return nil
+}
+
+func (Empty) DeleteDLDefaultQoS(uint32) error {
+	return nil
+}
+
 func (Empty) CreateURR(uint64, *ie.IE) error {
 	return nil
 }

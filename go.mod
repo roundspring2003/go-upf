@@ -1,12 +1,13 @@
 module github.com/free5gc/go-upf
 
-go 1.25.5
+go 1.26.2
 
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
-	github.com/davecgh/go-spew v1.1.1
-	github.com/free5gc/go-gtp5gnl v1.6.1
-	github.com/free5gc/util v1.3.2-0.20260228091348-fb7d1127055f
+	github.com/cilium/ebpf v0.21.0
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+	github.com/free5gc/go-gtp5gnl v1.6.2
+	github.com/free5gc/util v1.3.2
 	github.com/hashicorp/go-version v1.6.0
 	github.com/khirono/go-genl v1.0.1
 	github.com/khirono/go-nl v1.0.5
@@ -34,7 +35,6 @@ require (
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -42,7 +42,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tim-ywliu/nested-logrus-formatter v1.3.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect

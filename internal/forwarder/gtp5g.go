@@ -39,12 +39,19 @@ type Gtp5g struct {
 	psClient *gtp5gnl.Client
 	bsnl     *buffnetlink.Server
 	ps       *perio.Server
+	qosMaps  *xdpQoSMaps
 	log      *logrus.Entry
 }
 
-func OpenGtp5g(wg *sync.WaitGroup, addr string, mtu uint32) (*Gtp5g, error) {
+func OpenGtp5g(wg *sync.WaitGroup, addr string, mtu uint32, cpuPolicy *factory.XDPCPUPolicy) (*Gtp5g, error) {
+	qosMaps, err := newXDPQoSMaps(cpuPolicy)
+	if err != nil {
+		return nil, err
+	}
+
 	g := &Gtp5g{
-		log: logger.FwderLog.WithField(logger_util.FieldCategory, "Gtp5g"),
+		qosMaps: qosMaps,
+		log:     logger.FwderLog.WithField(logger_util.FieldCategory, "Gtp5g"),
 	}
 
 	mux, err := nl.NewMux()
@@ -138,6 +145,11 @@ func (g *Gtp5g) Close() {
 	}
 	if g.ps != nil {
 		g.ps.Close()
+	}
+	if g.qosMaps != nil {
+		if err := g.qosMaps.Close(); err != nil {
+			g.log.Warnf("close XDP QoS maps: %+v", err)
+		}
 	}
 }
 

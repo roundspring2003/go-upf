@@ -28,6 +28,13 @@ type Driver interface {
 	UpdateQER(uint64, *ie.IE) error
 	RemoveQER(uint64, *ie.IE) error
 
+	UpdateULFlowQoS(key QoSULFlowKey, info QoSFlowInfo) error
+	DeleteULFlowQoS(key QoSULFlowKey) error
+	UpdateDLExactFlowQoS(key QoSDLFlowKey, info QoSFlowInfo) error
+	DeleteDLExactFlowQoS(key QoSDLFlowKey) error
+	UpdateDLDefaultQoS(ueIPv4 uint32, info QoSFlowInfo) error
+	DeleteDLDefaultQoS(ueIPv4 uint32) error
+
 	CreateURR(uint64, *ie.IE) error
 	UpdateURR(uint64, *ie.IE) ([]report.USAReport, error)
 	RemoveURR(uint64, *ie.IE) ([]report.USAReport, error)
@@ -51,6 +58,9 @@ func NewDriver(wg *sync.WaitGroup, cfg *factory.Config) (Driver, error) {
 		var gtpuAddr string
 		var mtu uint32
 		for _, ifInfo := range cfgGtpu.IfList {
+			if ifInfo.Type == "N6" {
+				continue
+			}
 			mtu = ifInfo.MTU
 			gtpuAddr = fmt.Sprintf("%s:%d", ifInfo.Addr, factory.UpfGtpDefaultPort)
 			logger.MainLog.Infof("GTP Address: %q", gtpuAddr)
@@ -59,7 +69,7 @@ func NewDriver(wg *sync.WaitGroup, cfg *factory.Config) (Driver, error) {
 		if gtpuAddr == "" {
 			return nil, errors.Errorf("not found GTP address")
 		}
-		driver, err := OpenGtp5g(wg, gtpuAddr, mtu)
+		driver, err := OpenGtp5g(wg, gtpuAddr, mtu, cfgGtpu.XDPCPUPolicy)
 		if err != nil {
 			return nil, errors.Wrap(err, "open Gtp5g")
 		}

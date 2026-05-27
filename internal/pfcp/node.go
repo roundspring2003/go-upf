@@ -18,7 +18,20 @@ const (
 )
 
 type PDRInfo struct {
-	RelatedURRIDs map[uint32]struct{}
+	RelatedURRIDs           map[uint32]struct{}
+	RelatedQERIDs           map[uint32]struct{}
+	TEIDs                   map[uint32]struct{}
+	UEIPv4s                 map[uint32]struct{}
+	DLExactFlowKeys         map[forwarder.QoSDLFlowKey]struct{}
+	DLDefaultUEIPv4s        map[uint32]struct{}
+	WrittenULFlowKeys       map[forwarder.QoSULFlowKey]struct{}
+	WrittenDLExactFlowKeys  map[forwarder.QoSDLFlowKey]struct{}
+	WrittenDLDefaultUEIPv4s map[uint32]struct{}
+}
+
+type QERInfo struct {
+	QFI      uint8
+	QoSClass uint32
 }
 
 type URRInfo struct {
@@ -35,7 +48,7 @@ type Sess struct {
 	RemoteID uint64
 	PDRIDs   map[uint16]*PDRInfo    // key: PDR_ID
 	FARIDs   map[uint32]struct{}    // key: FAR_ID
-	QERIDs   map[uint32]struct{}    // key: QER_ID
+	QERIDs   map[uint32]*QERInfo    // key: QER_ID
 	URRIDs   map[uint32]*URRInfo    // key: URR_ID
 	BARIDs   map[uint8]struct{}     // key: BAR_ID
 	q        map[uint16]chan []byte // key: PDR_ID
@@ -100,16 +113,11 @@ func (s *Sess) CreatePDR(req *ie.IE) error {
 		return err
 	}
 
-	var pdrid uint16
+	qosFields := collectPDRQoSFields(ies)
+	pdrid := qosFields.pdrid
 	urrids := make(map[uint32]struct{})
 	for _, i := range ies {
 		switch i.Type {
-		case ie.PDRID:
-			v, err1 := i.PDRID()
-			if err1 != nil {
-				break
-			}
-			pdrid = v
 		case ie.URRID:
 			v, err1 := i.URRID()
 			if err1 != nil {
@@ -124,7 +132,12 @@ func (s *Sess) CreatePDR(req *ie.IE) error {
 	}
 
 	s.PDRIDs[pdrid] = &PDRInfo{
-		RelatedURRIDs: urrids,
+		RelatedURRIDs:    urrids,
+		RelatedQERIDs:    qosFields.qerids,
+		TEIDs:            qosFields.teids,
+		UEIPv4s:          qosFields.ueIPv4s,
+		DLExactFlowKeys:  qosFields.dlExactFlowKeys,
+		DLDefaultUEIPv4s: qosFields.dlDefaultUEIPv4s,
 	}
 
 	err = s.rnode.driver.CreatePDR(s.LocalID, req)
@@ -132,6 +145,7 @@ func (s *Sess) CreatePDR(req *ie.IE) error {
 		return err
 	}
 
+	s.updatePDRQoSMap(pdrid, s.PDRIDs[pdrid])
 	return nil
 }
 
@@ -166,16 +180,11 @@ func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 		return nil, err
 	}
 
-	var pdrid uint16
+	qosFields := collectPDRQoSFields(ies)
+	pdrid := qosFields.pdrid
 	newUrrids := make(map[uint32]struct{})
 	for _, i := range ies {
 		switch i.Type {
-		case ie.PDRID:
-			v, err1 := i.PDRID()
-			if err1 != nil {
-				break
-			}
-			pdrid = v
 		case ie.URRID:
 			v, err1 := i.URRID()
 			if err1 != nil {
@@ -206,6 +215,20 @@ func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 		}
 	}
 	pdrInfo.RelatedURRIDs = newUrrids
+	if qosFields.hasQERIDs {
+		pdrInfo.RelatedQERIDs = qosFields.qerids
+	}
+	if qosFields.hasTEIDs {
+		pdrInfo.TEIDs = qosFields.teids
+	}
+	if qosFields.hasUEIPv4s {
+		pdrInfo.UEIPv4s = qosFields.ueIPv4s
+	}
+	if qosFields.hasDLFlowKeys {
+		pdrInfo.DLExactFlowKeys = qosFields.dlExactFlowKeys
+		pdrInfo.DLDefaultUEIPv4s = qosFields.dlDefaultUEIPv4s
+	}
+	s.updatePDRQoSMap(pdrid, pdrInfo)
 
 	return usars, err
 }
@@ -225,6 +248,8 @@ func (s *Sess) RemovePDR(req *ie.IE) ([]report.USAReport, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	s.deletePDRQoSMap(pdrInfo)
 
 	var usars []report.USAReport
 	for urrid := range pdrInfo.RelatedURRIDs {
@@ -285,21 +310,22 @@ func (s *Sess) RemoveFAR(req *ie.IE) error {
 }
 
 func (s *Sess) CreateQER(req *ie.IE) error {
-	id, err := req.QERID()
+	id, qerInfo, err := qerInfoFromCreateQER(req)
 	if err != nil {
 		return err
 	}
-	s.QERIDs[id] = struct{}{}
+	s.QERIDs[id] = qerInfo
 
 	err = s.rnode.driver.CreateQER(s.LocalID, req)
 	if err != nil {
 		return err
 	}
+	s.refreshPDRQoSForQER(id)
 	return nil
 }
 
 func (s *Sess) UpdateQER(req *ie.IE) error {
-	id, err := req.QERID()
+	id, qerInfo, err := qerInfoFromUpdateQER(req)
 	if err != nil {
 		return err
 	}
@@ -308,7 +334,13 @@ func (s *Sess) UpdateQER(req *ie.IE) error {
 	if !ok {
 		return errors.Errorf("UpdateQER: QER(%#x) not found", id)
 	}
-	return s.rnode.driver.UpdateQER(s.LocalID, req)
+	if err := s.rnode.driver.UpdateQER(s.LocalID, req); err != nil {
+		return err
+	}
+
+	s.QERIDs[id] = qerInfo
+	s.refreshPDRQoSForQER(id)
+	return nil
 }
 
 func (s *Sess) RemoveQER(req *ie.IE) error {
@@ -328,6 +360,7 @@ func (s *Sess) RemoveQER(req *ie.IE) error {
 	}
 
 	delete(s.QERIDs, id)
+	s.refreshPDRQoSForQER(id)
 	return nil
 }
 
@@ -658,7 +691,7 @@ func (n *LocalNode) NewSess(rSeid uint64, qlen int) *Sess {
 		RemoteID: rSeid,
 		PDRIDs:   make(map[uint16]*PDRInfo),
 		FARIDs:   make(map[uint32]struct{}),
-		QERIDs:   make(map[uint32]struct{}),
+		QERIDs:   make(map[uint32]*QERInfo),
 		URRIDs:   make(map[uint32]*URRInfo),
 		BARIDs:   make(map[uint8]struct{}),
 		q:        make(map[uint16]chan []byte),

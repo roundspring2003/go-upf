@@ -22,6 +22,9 @@ func TestWaitRoutineStopped(t *testing.T) {
 		},
 		Gtpu: &factory.Gtpu{
 			Forwarder: "gtp5g",
+			XDPCPUPolicy: &factory.XDPCPUPolicy{
+				ReservedPrefixCount: 1,
+			},
 			IfList: []factory.IfInfo{
 				{
 					Addr:   "127.0.0.1",
