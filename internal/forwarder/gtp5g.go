@@ -3,6 +3,8 @@ package forwarder
 import (
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -28,7 +30,13 @@ import (
 const (
 	expectedMinGtp5gVersion string = "0.9.5"
 	expectedMaxGtp5gVersion string = "0.10.0"
+	disableXDPQoSEnv               = "GO_UPF_DISABLE_XDP_QOS"
 )
+
+func xdpQoSDisabled() bool {
+	disabled, err := strconv.ParseBool(os.Getenv(disableXDPQoSEnv))
+	return err == nil && disabled
+}
 
 type Gtp5g struct {
 	mux      *nl.Mux
@@ -44,9 +52,13 @@ type Gtp5g struct {
 }
 
 func OpenGtp5g(wg *sync.WaitGroup, addr string, mtu uint32, cpuPolicy *factory.XDPCPUPolicy) (*Gtp5g, error) {
-	qosMaps, err := newXDPQoSMaps(cpuPolicy)
-	if err != nil {
-		return nil, err
+	var qosMaps *xdpQoSMaps
+	if !xdpQoSDisabled() {
+		var err error
+		qosMaps, err = newXDPQoSMaps(cpuPolicy)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	g := &Gtp5g{
@@ -174,6 +186,12 @@ func (g *Gtp5g) checkVersion() error {
 		return errors.Wrapf(err, "Unable to parse gtp5g version(%s)", gtp5gVer)
 	}
 	if nowVer.LessThan(expMinVer) || nowVer.GreaterThanOrEqual(expMaxVer) {
+		if os.Getenv("GO_UPF_ALLOW_UNSUPPORTED_GTP5G") == "1" {
+			g.log.Warnf(
+				"allowing unsupported gtp5g version %v for this experiment; expected %s <= version < %s",
+				nowVer, expectedMinGtp5gVersion, expectedMaxGtp5gVersion)
+			return nil
+		}
 		return errors.Errorf(
 			"gtp5g version(%v) should be %s <= version < %s , please update it",
 			nowVer, expectedMinGtp5gVersion, expectedMaxGtp5gVersion)

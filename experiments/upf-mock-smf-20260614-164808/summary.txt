@@ -1,0 +1,46 @@
+Result directory: /home/rs-lab/workspace/XT-UPF/go-upf/experiments/upf-mock-smf-20260614-164808
+UPF PID: 2524117
+
+=== normal sender ===
+Sent 6958565 packets: TEID=1 QFI=7 class=1
+Sent 6958565 packets: TEID=1 QFI=8 class=2
+Sent 6958565 packets: TEID=1 QFI=8 class=2
+Sent 6958565 packets: TEID=1 QFI=9 class=3
+Completed in 30s (927809 packets/s)
+=== normal average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16    0.00    0.00   83.40    0.00    0.00    0.00    0.00    0.00    0.00   16.60
+Average:      17    0.00    0.00   83.07    0.00    0.00    0.00    0.00    0.00    0.00   16.93
+Average:      18    0.00    0.00   83.55    0.00    0.00    0.00    0.00    0.00    0.00   16.45
+Average:      19    0.00    0.00   83.48    0.00    0.00    0.00    0.00    0.00    0.00   16.52
+=== normal final counters ===
+rx               130071828
+pass             135
+ul_hit           130071693
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         130071693
+
+=== congested sender ===
+Sent 6146083 packets: TEID=1 QFI=7 class=1
+Sent 6146083 packets: TEID=1 QFI=8 class=2
+Sent 6146083 packets: TEID=1 QFI=8 class=2
+Sent 6146083 packets: TEID=1 QFI=9 class=3
+Completed in 30s (819478 packets/s)
+=== congested average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16   23.57    0.00   76.43    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      17   23.81    0.00   76.19    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      18   23.50    0.00   76.50    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      19   23.34    0.00   76.66    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+=== congested final counters ===
+rx               154656161
+pass             136
+ul_hit           154656025
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         154656025

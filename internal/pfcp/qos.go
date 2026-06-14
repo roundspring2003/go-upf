@@ -378,7 +378,7 @@ func classifyQERQoSClass(ies []*ie.IE) (uint32, error) {
 		return qosClass, nil
 	}
 
-	return 0, fmt.Errorf("missing XT QoS Profile IE in QER")
+	return forwarder.QoSClassStandard, nil
 }
 
 func isValidQoSClass(qosClass uint32) bool {

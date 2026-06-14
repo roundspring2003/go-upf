@@ -45,3 +45,9 @@ func TestBuildQoSCPUPoolsRejectsInvalidCPUCounts(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlineCPUCount(t *testing.T) {
+	count, err := onlineCPUCount()
+	require.NoError(t, err)
+	assert.Greater(t, count, 0)
+}

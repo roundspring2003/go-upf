@@ -1,0 +1,5 @@
+Sent 6842715 packets: TEID=1 QFI=7 class=1
+Sent 6842715 packets: TEID=1 QFI=8 class=2
+Sent 6842715 packets: TEID=1 QFI=8 class=2
+Sent 6842715 packets: TEID=1 QFI=9 class=3
+Completed in 30s (912362 packets/s)

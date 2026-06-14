@@ -1,0 +1,8 @@
+rx               32358834
+pass             117
+ul_hit           32358717
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         32358717

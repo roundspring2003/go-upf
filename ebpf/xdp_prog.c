@@ -53,7 +53,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_CPUMAP);
 	__uint(max_entries, QOS_CPU_MAP_MAX_ENTRIES);
 	__type(key, __u32);
-	__type(value, __u32);
+	__type(value, struct bpf_cpumap_val);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } qos_cpu_map SEC(".maps");
 
@@ -89,6 +89,12 @@ static __always_inline int xdp_pass(void)
 	return XDP_PASS;
 }
 
+SEC("xdp/cpumap")
+int xdp_cpumap_pass(struct xdp_md *ctx)
+{
+	return XDP_PASS;
+}
+
 static __always_inline int qos_class_to_cpu(__u32 qos_class, __u32 flow_hash, __u32 *cpu)
 {
 	struct qos_cpu_pool *pool;
@@ -102,11 +108,13 @@ static __always_inline int qos_class_to_cpu(__u32 qos_class, __u32 flow_hash, __
 	return 0;
 }
 
-static __always_inline int parse_gtpu_qfi(struct gtpu_header *gtp, void *data_end, __u8 *qfi)
+static __always_inline int parse_gtpu_qfi(struct gtpu_header *gtp, void *data_end, __u8 *qfi,
+					 void **inner_data)
 {
 	void *opt;
 	void *cursor;
 	__u8 next_ext;
+	__u8 found_qfi = 0;
 
 	if (!(gtp->flags & GTPU_FLAG_EXT)) {
 		return -1;
@@ -126,11 +134,15 @@ static __always_inline int parse_gtpu_qfi(struct gtpu_header *gtp, void *data_en
 		__u32 ext_bytes;
 
 		if (next_ext == 0) {
-			return -1;
+			if (!found_qfi) {
+				return -1;
+			}
+			*inner_data = cursor;
+			return 0;
 		}
 		if (cursor + 4 > data_end) {
-            return -1; 
-        }
+			return -1;
+		}
 
 		ext_len = *(__u8 *)cursor;
 		if (ext_len == 0) {
@@ -149,14 +161,59 @@ static __always_inline int parse_gtpu_qfi(struct gtpu_header *gtp, void *data_en
 			if (*qfi == 0) {
 				return -1;
 			}
-			return 0;
+			found_qfi = 1;
 		}
 
 		next_ext = *(__u8 *)(cursor + ext_bytes - 1);
 		cursor += ext_bytes;
+		if (next_ext == 0) {
+			if (!found_qfi) {
+				return -1;
+			}
+			*inner_data = cursor;
+			return 0;
+		}
 	}
 
 	return -1;
+}
+
+static __always_inline __u32 hash_inner_ipv4(void *inner_data, void *data_end, __u32 fallback)
+{
+	struct iphdr *inner_iph = inner_data;
+	__u32 inner_ip_hdr_len;
+	__u32 hash;
+
+	if ((void *)(inner_iph + 1) > data_end) {
+		return fallback;
+	}
+	inner_ip_hdr_len = inner_iph->ihl * 4;
+	if (inner_ip_hdr_len < sizeof(*inner_iph) ||
+	    (void *)inner_iph + inner_ip_hdr_len > data_end) {
+		return fallback;
+	}
+
+	hash = fallback ^ bpf_ntohl(inner_iph->saddr) ^ bpf_ntohl(inner_iph->daddr) ^
+	       inner_iph->protocol;
+	if (inner_iph->protocol == IPPROTO_UDP) {
+		struct udphdr *inner_udp = (void *)inner_iph + inner_ip_hdr_len;
+
+		if ((void *)(inner_udp + 1) > data_end) {
+			return hash;
+		}
+		hash ^= ((__u32)bpf_ntohs(inner_udp->source) << 16) ^
+			bpf_ntohs(inner_udp->dest);
+	} else if (inner_iph->protocol == IPPROTO_TCP) {
+		struct tcphdr *inner_tcp = (void *)inner_iph + inner_ip_hdr_len;
+
+		if ((void *)(inner_tcp + 1) > data_end) {
+			return hash;
+		}
+		hash ^= ((__u32)bpf_ntohs(inner_tcp->source) << 16) ^
+			bpf_ntohs(inner_tcp->dest);
+	}
+
+	return hash;
 }
 
 SEC("xdp")
@@ -202,6 +259,7 @@ int upf_xdp_qos(struct xdp_md *ctx)
 		}
 		if (udp->dest == bpf_htons(GTPU_PORT)) {
 			struct qos_ul_flow_key key = {};
+			void *inner_data = data_end;
 
 			gtp = (void *)(udp + 1);
 			if ((void *)(gtp + 1) > data_end) {
@@ -210,7 +268,7 @@ int upf_xdp_qos(struct xdp_md *ctx)
 			if (gtp->msg_type != GTPU_MSGTYPE_GPDU) {
 				return xdp_pass();
 			}
-			if (parse_gtpu_qfi(gtp, data_end, &key.qfi) < 0) {
+			if (parse_gtpu_qfi(gtp, data_end, &key.qfi, &inner_data) < 0) {
 				return xdp_pass();
 			}
 
@@ -219,7 +277,7 @@ int upf_xdp_qos(struct xdp_md *ctx)
 			if (flow_info) {
 				xdp_stats_inc(XDP_STAT_UL_HIT);
 			}
-			flow_hash = key.teid ^ key.qfi;
+			flow_hash = hash_inner_ipv4(inner_data, data_end, key.teid ^ key.qfi);
 			goto redirect_by_qos;
 		}
 	}
@@ -264,6 +322,7 @@ redirect_by_qos:
 		xdp_stats_inc(XDP_STAT_QOS_MISS);
 		return xdp_pass();
 	}
+
 
 	if (qos_class_to_cpu(flow_info->qos_class, flow_hash, &cpu) < 0) {
 		xdp_stats_inc(XDP_STAT_CPU_SELECT_FAIL);

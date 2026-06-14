@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -32,6 +33,11 @@ type qosCPUPool struct {
 	CPUCount uint32
 }
 
+type qosCPUMapValue struct {
+	QueueSize uint32
+	ProgramFD int32
+}
+
 type xdpQoSMaps struct {
 	mu              sync.Mutex
 	ulFlowQoS       *ebpf.Map
@@ -48,7 +54,11 @@ func newXDPQoSMaps(policy *factory.XDPCPUPolicy) (*xdpQoSMaps, error) {
 		return nil, errors.New("xdpCpuPolicy is required")
 	}
 
-	pools, err := buildQoSCPUPools(runtime.NumCPU(), policy.ReservedPrefixCount)
+	totalCPU, err := onlineCPUCount()
+	if err != nil {
+		return nil, err
+	}
+	pools, err := buildQoSCPUPools(totalCPU, policy.ReservedPrefixCount)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +66,41 @@ func newXDPQoSMaps(policy *factory.XDPCPUPolicy) (*xdpQoSMaps, error) {
 	return &xdpQoSMaps{
 		qosPools: pools,
 	}, nil
+}
+
+func onlineCPUCount() (int, error) {
+	data, err := os.ReadFile("/sys/devices/system/cpu/online")
+	if err != nil {
+		return 0, fmt.Errorf("read online CPU list: %w", err)
+	}
+
+	count := 0
+	for _, part := range strings.Split(strings.TrimSpace(string(data)), ",") {
+		bounds := strings.Split(part, "-")
+		switch len(bounds) {
+		case 1:
+			if _, err := strconv.Atoi(bounds[0]); err != nil {
+				return 0, fmt.Errorf("parse online CPU list %q: %w", string(data), err)
+			}
+			count++
+		case 2:
+			start, err := strconv.Atoi(bounds[0])
+			if err != nil {
+				return 0, fmt.Errorf("parse online CPU list %q: %w", string(data), err)
+			}
+			end, err := strconv.Atoi(bounds[1])
+			if err != nil || end < start {
+				return 0, fmt.Errorf("invalid online CPU range %q", part)
+			}
+			count += end - start + 1
+		default:
+			return 0, fmt.Errorf("invalid online CPU range %q", part)
+		}
+	}
+	if count == 0 {
+		return 0, errors.New("online CPU list is empty")
+	}
+	return count, nil
 }
 
 func (m *xdpQoSMaps) Close() error {
@@ -248,14 +293,29 @@ func (m *xdpQoSMaps) prepareCPUMapsLocked() error {
 		return nil
 	}
 
+	spec, err := LoadXdpSmoke()
+	if err != nil {
+		return fmt.Errorf("load XDP collection spec: %w", err)
+	}
+	programSpec := spec.Programs["xdp_cpumap_pass"]
+	if programSpec == nil {
+		return errors.New("xdp_cpumap_pass program is missing")
+	}
+	passProgram, err := ebpf.NewProgram(programSpec)
+	if err != nil {
+		return fmt.Errorf("load xdp_cpumap_pass: %w", err)
+	}
+	defer passProgram.Close()
+
 	for qosClass, pool := range m.qosPools {
 		if err := m.qosCPUPool.Update(qosClass, pool, ebpf.UpdateAny); err != nil {
 			return fmt.Errorf("update %s[%d]=%+v: %w", qosCPUPoolMapName, qosClass, pool, err)
 		}
 
 		for cpu := pool.StartCPU; cpu < pool.StartCPU+pool.CPUCount; cpu++ {
-			if err := m.qosCPU.Update(cpu, qosCPUMapQueueSize, ebpf.UpdateAny); err != nil {
-				return fmt.Errorf("update %s[%d] queue size: %w", qosCPUMapName, cpu, err)
+			value := qosCPUMapValue{QueueSize: qosCPUMapQueueSize, ProgramFD: int32(passProgram.FD())}
+			if err := m.qosCPU.Update(cpu, value, ebpf.UpdateAny); err != nil {
+				return fmt.Errorf("update %s[%d] queue and program: %w", qosCPUMapName, cpu, err)
 			}
 		}
 	}

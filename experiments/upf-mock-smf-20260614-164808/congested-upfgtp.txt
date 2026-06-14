@@ -1,0 +1,6 @@
+25: upfgtp: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1464 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/none 
+    RX:  bytes  packets errors dropped  missed   mcast           
+    2411255232 52418592      0       0       0       0 
+    TX:  bytes  packets errors dropped carrier collsns           
+             0        0      5       0       0       0 

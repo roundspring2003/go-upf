@@ -13,6 +13,15 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type XdpSmokeBpfCpumapVal struct {
+	_       structs.HostLayout
+	Qsize   uint32
+	BpfProg struct {
+		_  structs.HostLayout
+		Fd int32
+	}
+}
+
 type XdpSmokeQosCpuPool struct {
 	_        structs.HostLayout
 	StartCpu uint32
@@ -85,7 +94,8 @@ type XdpSmokeSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type XdpSmokeProgramSpecs struct {
-	UpfXdpQos *ebpf.ProgramSpec `ebpf:"upf_xdp_qos"`
+	UpfXdpQos     *ebpf.ProgramSpec `ebpf:"upf_xdp_qos"`
+	XdpCpumapPass *ebpf.ProgramSpec `ebpf:"xdp_cpumap_pass"`
 }
 
 // XdpSmokeMapSpecs contains maps before they are loaded into the kernel.
@@ -155,12 +165,14 @@ type XdpSmokeVariables struct {
 //
 // It can be passed to LoadXdpSmokeObjects or ebpf.CollectionSpec.LoadAndAssign.
 type XdpSmokePrograms struct {
-	UpfXdpQos *ebpf.Program `ebpf:"upf_xdp_qos"`
+	UpfXdpQos     *ebpf.Program `ebpf:"upf_xdp_qos"`
+	XdpCpumapPass *ebpf.Program `ebpf:"xdp_cpumap_pass"`
 }
 
 func (p *XdpSmokePrograms) Close() error {
 	return _XdpSmokeClose(
 		p.UpfXdpQos,
+		p.XdpCpumapPass,
 	)
 }
 

@@ -83,7 +83,7 @@ func newXTQoSProfileIE(qosClass uint32) *ie.IE {
 	)
 }
 
-func TestQERQoSClassRequiresQFIAndSMFProfile(t *testing.T) {
+func TestQERQoSClassUsesStandardFallbackWithoutSMFProfile(t *testing.T) {
 	ies := []*ie.IE{
 		ie.NewQFI(7),
 		ie.NewGBR(1000, 1000),
@@ -102,8 +102,9 @@ func TestQERQoSClassRequiresQFIAndSMFProfile(t *testing.T) {
 	_, err = qfiFromQERIEs([]*ie.IE{newXTQoSProfileIE(forwarder.QoSClassStandard)})
 	assert.Error(t, err)
 
-	_, err = classifyQERQoSClass([]*ie.IE{ie.NewQFI(7)})
-	assert.Error(t, err)
+	qosClass, err = classifyQERQoSClass([]*ie.IE{ie.NewQFI(7)})
+	assert.NoError(t, err)
+	assert.Equal(t, forwarder.QoSClassStandard, qosClass)
 
 	_, err = classifyQERQoSClass([]*ie.IE{newXTQoSProfileIE(99)})
 	assert.Error(t, err)

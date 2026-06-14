@@ -1,0 +1,43 @@
+Result directory: /home/rs-lab/workspace/XT-UPF/go-upf/experiments/xdp-cpu-20260614-161347
+
+=== normal sender ===
+Sent 8776239 packets: TEID=1 QFI=7 class=1
+Sent 8776239 packets: TEID=1 QFI=8 class=2
+Sent 8776239 packets: TEID=1 QFI=9 class=3
+Completed in 30s (877624 packets/s)
+=== normal average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16    0.00    0.00   61.66    0.00    0.00    0.00    0.00    0.00    0.00   38.34
+Average:      17    0.00    0.00   61.76    0.00    0.00    0.00    0.00    0.00    0.00   38.24
+Average:      18    0.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00  100.00
+Average:      19    0.00    0.00   62.77    0.00    0.00    0.00    0.00    0.00    0.00   37.23
+=== normal final counters ===
+rx               32358834
+pass             117
+ul_hit           32358717
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         32358717
+
+=== congested sender ===
+Sent 6842556 packets: TEID=1 QFI=7 class=1
+Sent 6842556 packets: TEID=1 QFI=8 class=2
+Sent 6842556 packets: TEID=1 QFI=9 class=3
+Completed in 30s (684256 packets/s)
+=== congested average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16   27.34    0.00   72.66    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      17   27.27    0.00   72.73    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      18  100.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      19   27.08    0.00   72.92    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+=== congested final counters ===
+rx               52886503
+pass             118
+ul_hit           52886385
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         52886385

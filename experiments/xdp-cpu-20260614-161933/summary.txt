@@ -1,0 +1,45 @@
+Result directory: /home/rs-lab/workspace/XT-UPF/go-upf/experiments/xdp-cpu-20260614-161933
+
+=== normal sender ===
+Sent 6842715 packets: TEID=1 QFI=7 class=1
+Sent 6842715 packets: TEID=1 QFI=8 class=2
+Sent 6842715 packets: TEID=1 QFI=8 class=2
+Sent 6842715 packets: TEID=1 QFI=9 class=3
+Completed in 30s (912362 packets/s)
+=== normal average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16    0.00    0.00   47.73    0.00    0.00    0.00    0.00    0.00    0.00   52.27
+Average:      17    0.00    0.00   47.94    0.00    0.00    0.00    0.00    0.00    0.00   52.06
+Average:      18    0.00    0.00   49.19    0.00    0.00    0.00    0.00    0.00    0.00   50.81
+Average:      19    0.00    0.00   49.46    0.00    0.00    0.00    0.00    0.00    0.00   50.54
+=== normal final counters ===
+rx               80257371
+pass             126
+ul_hit           80257245
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         80257245
+
+=== congested sender ===
+Sent 5495047 packets: TEID=1 QFI=7 class=1
+Sent 5495047 packets: TEID=1 QFI=8 class=2
+Sent 5495047 packets: TEID=1 QFI=8 class=2
+Sent 5495047 packets: TEID=1 QFI=9 class=3
+Completed in 30s (732673 packets/s)
+=== congested average CPU ===
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      16   39.38    0.00   60.62    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      17   37.98    0.00   62.02    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      18   38.12    0.00   61.88    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+Average:      19   38.23    0.00   61.77    0.00    0.00    0.00    0.00    0.00    0.00    0.00
+=== congested final counters ===
+rx               102237560
+pass             127
+ul_hit           102237433
+dl_exact_hit     0
+dl_default_hit   0
+qos_miss         0
+cpu_select_fail  0
+redirect         102237433
