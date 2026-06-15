@@ -101,7 +101,7 @@ The UPF-side script creates a mock PFCP session with TEID `1`, UE address
 uses the same values in its GTP-U packets.
 
 Before the first run, either synchronize the `go-upf` repository to the remote
-host or copy `bin/xdpstandalone` and `scripts/physical_gtpu_sender.sh` while
+host or copy `bin/gtpuprobe` and `scripts/physical_gtpu_sender.sh` while
 preserving the `bin/` and `scripts/` directory layout.
 
 On the UPF computer (`192.168.113.21`), start the native group:
@@ -137,7 +137,15 @@ CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh nativ
 CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
 ```
 
-Compare packet rate reported by the remote sender, per-CPU `%soft`/`%sys` in
-`mpstat.txt`, `NET_RX` deltas in the softirq snapshots, physical NIC counters,
-`upfgtp` counters, and XDP redirect/failure counters. Keep the sender output with
-the matching UPF result directory for each run.
+The remote result contains the primary metrics: sent/received packets, loss
+percentage, and RTT minimum/mean/P50/P95/P99/maximum, both overall and per QFI.
+The UPF result contains supporting CPU, softirq, IRQ, NIC, `upfgtp`, and XDP
+counters. Use identical `TARGET_PPS` values for native and XDP runs, for example:
+
+```bash
+TARGET_PPS=10000 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
+TARGET_PPS=10000 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
+```
+
+Repeat at increasing rates such as 10k, 20k, 30k, 40k, and 50k pps. Keep the
+sender result directory with the matching UPF result directory for every run.

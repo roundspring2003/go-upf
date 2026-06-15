@@ -8,6 +8,8 @@ UPF_IP="${E2E_UPF_IP:-192.168.113.21}"
 GNB_IP="${GNB_IP:-192.168.113.20}"
 UPF_CPUS="${UPF_CPUS:-16-19}"
 DURATION="${EXPERIMENT_DURATION:-30}"
+TARGET_PPS="${TARGET_PPS:-10000}"
+GRACE="${RECEIVE_GRACE:-2}"
 START_DELAY="${START_DELAY:-20}"
 FLOWS="${EXPERIMENT_FLOWS:-1:7:1,1:8:2,1:8:2,1:9:3}"
 QOS_FLOWS="${MOCK_QOS_FLOWS:-7:1,8:2,9:3}"
@@ -15,7 +17,9 @@ PRESSURE="${CPU_PRESSURE:-0}"
 RESULT_ROOT="${PHYSICAL_RESULT_ROOT:-${REPO_ROOT}/experiments}"
 RESULT_DIR="${RESULT_ROOT}/physical-${MODE}-$(date +%Y%m%d-%H%M%S)"
 UPFTEST="${REPO_ROOT}/bin/upftest"
-XDPTOOL="${REPO_ROOT}/bin/xdpstandalone"
+XDPSTATS="${REPO_ROOT}/bin/xdpstats"
+GTPUPROBE="${REPO_ROOT}/bin/gtpuprobe"
+ECHO_PID=""
 RPS_FILE="/sys/class/net/${NIC}/queues/rx-0/rps_cpus"
 PRESSURE_PIDS=()
 ORIGINAL_RPS=""
@@ -71,7 +75,8 @@ fi
 mkdir -p "${REPO_ROOT}/bin" "${RESULT_DIR}"
 (cd "${REPO_ROOT}" && go build -o bin/upf ./cmd/main.go)
 (cd "${REPO_ROOT}" && go build -o bin/upftest ./testtools/upftest)
-(cd "${REPO_ROOT}" && go build -o bin/xdpstandalone ./testtools/xdpstandalone)
+(cd "${REPO_ROOT}" && go build -o bin/xdpstats ./testtools/xdpstats)
+(cd "${REPO_ROOT}" && go build -o bin/gtpuprobe ./testtools/gtpuprobe)
 sudo -v
 ORIGINAL_RPS="$(cat "${RPS_FILE}")"
 
@@ -85,6 +90,10 @@ stop_pressure() {
 
 cleanup() {
   stop_pressure
+  if [[ -n "${ECHO_PID}" ]]; then
+    kill "${ECHO_PID}" 2>/dev/null || true
+    wait "${ECHO_PID}" 2>/dev/null || true
+  fi
   "${REPO_ROOT}/scripts/e2e_upf_stop.sh" || true
   if [[ -n "${ORIGINAL_RPS}" && -f "${RPS_FILE}" ]]; then
     printf '%s\n' "${ORIGINAL_RPS}" | sudo tee "${RPS_FILE}" >/dev/null || true
@@ -112,6 +121,16 @@ UPF_PID="$(cat "${REPO_ROOT}/e2e/run/upf.pid")"
   -dl-peer-ip "${GNB_IP}" \
   -qos-flows "${QOS_FLOWS}" >"${RESULT_DIR}/mock-smf.log" 2>&1
 
+taskset -c 0-15 "${GTPUPROBE}" echo --listen "${UPF_IP}:9000" >"${RESULT_DIR}/echo.log" 2>&1 &
+ECHO_PID=$!
+sleep 1
+if ! kill -0 "${ECHO_PID}" 2>/dev/null; then
+  echo "UDP echo server failed to start." >&2
+  cat "${RESULT_DIR}/echo.log" >&2
+  exit 1
+fi
+ip route get 10.60.0.1 >"${RESULT_DIR}/ue-route.txt" 2>&1 || true
+
 if [[ "${PRESSURE}" == "1" ]]; then
   IFS=',' read -ra pressure_cpus <<<"${DATA_CPUS}"
   for cpu in "${pressure_cpus[@]}"; do
@@ -132,6 +151,8 @@ START_AT=$(( $(date +%s) + START_DELAY ))
   echo "data_cpus=${DATA_CPUS}"
   echo "rps_cpus=$(cat "${RPS_FILE}")"
   echo "duration=${DURATION}"
+  echo "target_pps=${TARGET_PPS}"
+  echo "receive_grace=${GRACE}"
   echo "start_at=${START_AT}"
   echo "cpu_pressure=${PRESSURE}"
   ip -details link show dev "${NIC}"
@@ -142,8 +163,9 @@ START_AT=$(( $(date +%s) + START_DELAY ))
 ip -s link show dev "${NIC}" >"${RESULT_DIR}/nic-before.txt"
 ip -s link show upfgtp >"${RESULT_DIR}/upfgtp-before.txt" 2>&1 || true
 cp /proc/softirqs "${RESULT_DIR}/softirqs-before.txt"
+cp /proc/interrupts "${RESULT_DIR}/interrupts-before.txt"
 if [[ "${MODE}" == "xdp-steering" ]]; then
-  "${XDPTOOL}" stats >"${RESULT_DIR}/xdp-before.txt"
+  "${XDPSTATS}" >"${RESULT_DIR}/xdp-before.txt"
   bpftool map dump pinned /sys/fs/bpf/xdp/globals/ul_flow_qos_map >"${RESULT_DIR}/ul-flow-map.txt" 2>&1 || true
 else
   printf 'not available: XDP is detached\n' >"${RESULT_DIR}/xdp-before.txt"
@@ -152,24 +174,26 @@ fi
 echo
 echo "Run this on 192.168.113.20 now:"
 echo "  cd ~/workspace/XT-UPF/go-upf"
-echo "  START_AT=${START_AT} EXPERIMENT_DURATION=${DURATION} ./scripts/physical_gtpu_sender.sh"
+echo "  START_AT=${START_AT} TARGET_PPS=${TARGET_PPS} EXPERIMENT_DURATION=${DURATION} RECEIVE_GRACE=${GRACE} ./scripts/physical_gtpu_sender.sh"
 echo "Synchronized start is $(date -d "@${START_AT}" --iso-8601=seconds)."
 
 now="$(date +%s)"
 if (( now < START_AT )); then sleep "$((START_AT - now))"; fi
-mpstat -P "${DATA_CPUS}" 1 "${DURATION}" >"${RESULT_DIR}/mpstat.txt" &
+MONITOR_SECONDS=$((DURATION + GRACE))
+mpstat -P ALL 1 "${MONITOR_SECONDS}" >"${RESULT_DIR}/mpstat.txt" &
 MPSTAT_PID=$!
-pidstat -p "${UPF_PID}" -t 1 "${DURATION}" >"${RESULT_DIR}/pidstat.txt" &
+pidstat -p "${UPF_PID}" -t 1 "${MONITOR_SECONDS}" >"${RESULT_DIR}/pidstat.txt" &
 PIDSTAT_PID=$!
 wait "${MPSTAT_PID}"
 wait "${PIDSTAT_PID}"
 
 cp /proc/softirqs "${RESULT_DIR}/softirqs-after.txt"
+cp /proc/interrupts "${RESULT_DIR}/interrupts-after.txt"
 ip -s link show dev "${NIC}" >"${RESULT_DIR}/nic-after.txt"
 ip -s link show upfgtp >"${RESULT_DIR}/upfgtp-after.txt" 2>&1 || true
 ethtool -S "${NIC}" >"${RESULT_DIR}/ethtool-stats.txt" 2>&1 || true
 if [[ "${MODE}" == "xdp-steering" ]]; then
-  "${XDPTOOL}" stats >"${RESULT_DIR}/xdp-after.txt"
+  "${XDPSTATS}" >"${RESULT_DIR}/xdp-after.txt"
 else
   printf 'not available: XDP is detached\n' >"${RESULT_DIR}/xdp-after.txt"
 fi

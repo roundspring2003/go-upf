@@ -28,3 +28,8 @@ cscope.*
 # Debug
 *.log
 *.pcap
+
+# Generated experiment output
+/experiments/
+/e2e/logs/
+/e2e/run/

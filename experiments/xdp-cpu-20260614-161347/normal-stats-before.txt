@@ -1,8 +1,0 @@
-rx               6030109
-pass             109
-ul_hit           6030000
-dl_exact_hit     0
-dl_default_hit   0
-qos_miss         0
-cpu_select_fail  0
-redirect         6030000
