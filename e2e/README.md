@@ -83,13 +83,18 @@ physical NIC measurements.
 
 ### Two-group procedure
 
-Use the same flows, duration, UPF affinity, packet generator, and physical cable
-for both groups. Only the receive steering method changes:
+Use the same flows, duration, UPF affinity, packet generator, physical cable,
+and GRUB CPU-isolation settings for both groups. Both groups force
+`rps_cpus=0`; only XDP CPU steering changes:
 
-| Group | XDP | `rps_cpus` | Receive distribution |
+| Group | XDP | `rps_cpus` | Receive path |
 | --- | --- | --- | --- |
-| Linux RPS | detached | `f0000` | Linux outer-flow hash on CPUs 16-19 |
-| XDP CPU steering | attached | `0` | TEID/QFI policy and CPUMAP on CPUs 16-19 |
+| Native UPF | detached | `0` | Single RX queue default Linux/gtp5g path |
+| XDP CPU steering | attached | `0` | TEID/QFI policy and CPUMAP to CPUs 16-19 |
+
+This evaluates the practical effect of adding QFI-aware XDP CPU steering to the
+native single-RX-queue UPF. It is not an RPS-versus-XDP comparison. CPU 16-19
+may remain isolated in GRUB for both groups.
 
 The UPF-side script creates a mock PFCP session with TEID `1`, UE address
 `10.60.0.1`, and QFI/class mappings `7/1`, `8/2`, and `9/3`. The remote sender
@@ -99,11 +104,11 @@ Before the first run, either synchronize the `go-upf` repository to the remote
 host or copy `bin/xdpstandalone` and `scripts/physical_gtpu_sender.sh` while
 preserving the `bin/` and `scripts/` directory layout.
 
-On the UPF computer (`192.168.113.21`), start the Linux RPS group:
+On the UPF computer (`192.168.113.21`), start the native group:
 
 ```bash
 cd ~/workspace/XT-UPF/go-upf
-EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh linux-rps
+EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
 ```
 
 The script prints a `START_AT=...` command. Run that exact command on the remote
@@ -121,14 +126,14 @@ EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
 ```
 
 Run the newly printed sender command on the remote computer. Result directories
-are named `experiments/physical-linux-rps-*` and
+are named `experiments/physical-native-*` and
 `experiments/physical-xdp-steering-*`.
 
 For congested runs, set `CPU_PRESSURE=1` on the UPF-side command for both groups.
 Do not set it for only one group. Run each condition at least five times:
 
 ```bash
-CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh linux-rps
+CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
 CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
 ```
 

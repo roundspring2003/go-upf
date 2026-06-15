@@ -7,7 +7,6 @@ NIC="${E2E_NIC:-enx000ec687a702}"
 UPF_IP="${E2E_UPF_IP:-192.168.113.21}"
 GNB_IP="${GNB_IP:-192.168.113.20}"
 UPF_CPUS="${UPF_CPUS:-16-19}"
-RPS_MASK="${RPS_MASK:-f0000}"
 DURATION="${EXPERIMENT_DURATION:-30}"
 START_DELAY="${START_DELAY:-20}"
 FLOWS="${EXPERIMENT_FLOWS:-1:7:1,1:8:2,1:8:2,1:9:3}"
@@ -38,14 +37,15 @@ PYCPU
 }
 
 usage() {
-  echo "Usage: $0 {linux-rps|xdp-steering}" >&2
+  echo "Usage: $0 {native|xdp-steering}" >&2
 }
 
 case "${MODE}" in
-  linux-rps) XDP_ENABLED=0; TARGET_RPS="${RPS_MASK}" ;;
-  xdp-steering) XDP_ENABLED=1; TARGET_RPS=0 ;;
+  native) XDP_ENABLED=0 ;;
+  xdp-steering) XDP_ENABLED=1 ;;
   *) usage; exit 2 ;;
 esac
+TARGET_RPS=0
 
 DATA_CPUS="$(expand_cpu_list)"
 if [[ -z "${DATA_CPUS}" ]]; then
@@ -92,10 +92,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if ! printf '%s\n' "${TARGET_RPS}" | sudo tee "${RPS_FILE}" >/dev/null; then
+  echo "Failed to disable RPS on ${NIC}." >&2
+  exit 1
+fi
+
 E2E_XDP="${XDP_ENABLED}" E2E_NIC="${NIC}" E2E_UPF_IP="${UPF_IP}" \
   E2E_SMF_IP="${GNB_IP}" UPF_CPUS="${UPF_CPUS}" \
   "${REPO_ROOT}/scripts/e2e_upf_start.sh"
-printf '%s\n' "${TARGET_RPS}" | sudo tee "${RPS_FILE}" >/dev/null
 
 UPF_PID="$(cat "${REPO_ROOT}/e2e/run/upf.pid")"
 "${UPFTEST}" \
