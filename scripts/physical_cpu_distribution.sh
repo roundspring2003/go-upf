@@ -10,12 +10,13 @@ UPF_CPUS="${UPF_CPUS:-16-19}"
 DURATION="${EXPERIMENT_DURATION:-30}"
 TARGET_PPS="${TARGET_PPS:-10000}"
 GRACE="${RECEIVE_GRACE:-2}"
+STOP_BUFFER="${STOP_BUFFER:-8}"
 START_DELAY="${START_DELAY:-20}"
 FLOWS="${EXPERIMENT_FLOWS:-1:7:1,1:8:2,1:8:2,1:9:3}"
 QOS_FLOWS="${MOCK_QOS_FLOWS:-7:1,8:2,9:3}"
 PRESSURE="${CPU_PRESSURE:-0}"
 RESULT_ROOT="${PHYSICAL_RESULT_ROOT:-${REPO_ROOT}/experiments}"
-RESULT_DIR="${RESULT_ROOT}/physical-${MODE}-$(date +%Y%m%d-%H%M%S)"
+RESULT_DIR="${RESULT_ROOT}/physical-cpu-${MODE}-$(date +%Y%m%d-%H%M%S)"
 UPFTEST="${REPO_ROOT}/bin/upftest"
 XDPSTATS="${REPO_ROOT}/bin/xdpstats"
 GTPUPROBE="${REPO_ROOT}/bin/gtpuprobe"
@@ -143,6 +144,7 @@ START_AT=$(( $(date +%s) + START_DELAY ))
 {
   date --iso-8601=seconds
   uname -a
+  echo "experiment=cpu-distribution"
   echo "mode=${MODE}"
   echo "nic=${NIC}"
   echo "upf_ip=${UPF_IP}"
@@ -153,6 +155,7 @@ START_AT=$(( $(date +%s) + START_DELAY ))
   echo "duration=${DURATION}"
   echo "target_pps=${TARGET_PPS}"
   echo "receive_grace=${GRACE}"
+  echo "stop_buffer=${STOP_BUFFER}"
   echo "start_at=${START_AT}"
   echo "cpu_pressure=${PRESSURE}"
   ip -details link show dev "${NIC}"
@@ -179,7 +182,8 @@ echo "Synchronized start is $(date -d "@${START_AT}" --iso-8601=seconds)."
 
 now="$(date +%s)"
 if (( now < START_AT )); then sleep "$((START_AT - now))"; fi
-MONITOR_SECONDS=$((DURATION + GRACE))
+MONITOR_SECONDS=$((DURATION + GRACE + STOP_BUFFER))
+echo "UPF will stay up for ${MONITOR_SECONDS}s after START_AT (duration=${DURATION}, grace=${GRACE}, stop_buffer=${STOP_BUFFER})."
 mpstat -P ALL 1 "${MONITOR_SECONDS}" >"${RESULT_DIR}/mpstat.txt" &
 MPSTAT_PID=$!
 pidstat -p "${UPF_PID}" -t 1 "${MONITOR_SECONDS}" >"${RESULT_DIR}/pidstat.txt" &

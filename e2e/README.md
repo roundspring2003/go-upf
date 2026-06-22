@@ -104,48 +104,60 @@ Before the first run, either synchronize the `go-upf` repository to the remote
 host or copy `bin/gtpuprobe` and `scripts/physical_gtpu_sender.sh` while
 preserving the `bin/` and `scripts/` directory layout.
 
-On the UPF computer (`192.168.113.21`), start the native group:
+### Performance validation: RTT and loss
+
+This is the primary experiment. It does not require clock synchronization or
+CPU monitoring. On the UPF computer, start a persistent performance endpoint:
 
 ```bash
 cd ~/workspace/XT-UPF/go-upf
-EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
+TARGET_PPS=10000 EXPERIMENT_DURATION=30 \
+  ./scripts/physical_performance_experiment.sh native
 ```
 
-The script prints a `START_AT=...` command. Run that exact command on the remote
-computer (`192.168.113.20`) before the synchronized start time:
+On the remote sender computer, run:
 
 ```bash
 cd ~/workspace/XT-UPF/go-upf
-START_AT=<printed_epoch> EXPERIMENT_DURATION=30 ./scripts/physical_gtpu_sender.sh
+TARGET_PPS=10000 EXPERIMENT_DURATION=30 \
+  ./scripts/physical_gtpu_sender.sh
 ```
 
-Then repeat with XDP steering on the UPF computer:
+After the sender prints its result, return to the UPF terminal and press Enter.
+Repeat the same procedure with XDP steering:
 
 ```bash
-EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
+TARGET_PPS=10000 EXPERIMENT_DURATION=30 \
+  ./scripts/physical_performance_experiment.sh xdp-steering
 ```
 
-Run the newly printed sender command on the remote computer. Result directories
-are named `experiments/physical-native-*` and
-`experiments/physical-xdp-steering-*`.
+The sender result is the primary output: sent/received packets, loss percentage,
+and RTT minimum/mean/P50/P95/P99/maximum overall and per QFI. UPF-side results
+are stored under `experiments/physical-performance-<mode>-*` and contain only
+supporting NIC, `upfgtp`, and XDP counters.
 
-For congested runs, set `CPU_PRESSURE=1` on the UPF-side command for both groups.
-Do not set it for only one group. Run each condition at least five times:
+For congestion testing, set `CPU_PRESSURE=1` on the UPF command for both native
+and XDP groups. Use the same offered rate and run each condition at least five
+times. Repeat at increasing rates such as 10k, 20k, 30k, 40k, and 50k pps.
+
+### CPU distribution validation
+
+This is a separate mechanism-validation experiment. It records `mpstat`,
+`pidstat`, softirq, IRQ, NIC, `upfgtp`, and XDP counters. Start it on the UPF
+computer:
 
 ```bash
-CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
-CPU_PRESSURE=1 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
+EXPERIMENT_DURATION=30 ./scripts/physical_cpu_distribution.sh native
 ```
 
-The remote result contains the primary metrics: sent/received packets, loss
-percentage, and RTT minimum/mean/P50/P95/P99/maximum, both overall and per QFI.
-The UPF result contains supporting CPU, softirq, IRQ, NIC, `upfgtp`, and XDP
-counters. Use identical `TARGET_PPS` values for native and XDP runs, for example:
+Run the exact `START_AT=...` sender command printed by the script on the remote
+computer. Then repeat with XDP steering:
 
 ```bash
-TARGET_PPS=10000 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh native
-TARGET_PPS=10000 EXPERIMENT_DURATION=30 ./scripts/physical_upf_experiment.sh xdp-steering
+EXPERIMENT_DURATION=30 ./scripts/physical_cpu_distribution.sh xdp-steering
 ```
 
-Repeat at increasing rates such as 10k, 20k, 30k, 40k, and 50k pps. Keep the
-sender result directory with the matching UPF result directory for every run.
+CPU result directories are named `experiments/physical-cpu-<mode>-*`. Use this
+experiment only to demonstrate where native softirq work runs and whether XDP
+CPUMAP redirects work to CPUs 16-19; do not use its synchronized window as the
+primary RTT/loss result.

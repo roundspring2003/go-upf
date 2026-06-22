@@ -35,17 +35,6 @@ if ! ping -I "${NIC}" -c 1 -W 1 "${DST_IP}" >/dev/null; then
   exit 1
 fi
 
-if (( START_AT > 0 )); then
-  now="$(date +%s)"
-  if (( now < START_AT )); then
-    echo "Waiting $((START_AT - now)) seconds; synchronized start=${START_AT}."
-    sleep "$((START_AT - now))"
-  elif (( now > START_AT + 2 )); then
-    echo "START_AT=${START_AT} is already in the past." >&2
-    exit 1
-  fi
-fi
-
 mkdir -p "${RESULT_DIR}"
 {
   date --iso-8601=seconds
@@ -55,8 +44,24 @@ mkdir -p "${RESULT_DIR}"
   echo "target_pps=${TARGET_PPS}"
   echo "duration=${DURATION}"
   echo "receive_grace=${GRACE}"
+  echo "start_at=${START_AT}"
   echo "flows=${FLOWS}"
 } >"${RESULT_DIR}/environment.txt"
+
+# Authenticate sudo before the synchronized start. Otherwise a password prompt or
+# sudo timestamp refresh can delay the first packet and make the UPF side stop early.
+sudo -v
+
+if (( START_AT > 0 )); then
+  now="$(date +%s)"
+  if (( now < START_AT )); then
+    echo "Prepared; waiting $((START_AT - now)) seconds; synchronized start=${START_AT}."
+    sleep "$((START_AT - now))"
+  elif (( now > START_AT + 2 )); then
+    echo "START_AT=${START_AT} is already in the past after preparation." >&2
+    exit 1
+  fi
+fi
 
 echo "GTP-U RTT probe: ${SRC_IP} (${NIC}) -> ${DST_IP}, pps=${TARGET_PPS}, duration=${DURATION}s"
 sudo "${TOOL}" probe \
