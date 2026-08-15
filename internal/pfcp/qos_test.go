@@ -301,3 +301,69 @@ func TestSessUpdatesAndDeletesFlowQoSMap(t *testing.T) {
 	assert.NotContains(t, driver.ulUpdates, newKey)
 	assert.Contains(t, driver.ulDeletes, newKey)
 }
+
+func TestSessUpdateQERPreservesOmittedQoSFields(t *testing.T) {
+	driver := newQoSCaptureDriver()
+	sess := newQoSTestSess(driver)
+
+	assert.NoError(t, sess.CreateQER(ie.NewCreateQER(
+		ie.NewQERID(3),
+		ie.NewQFI(8),
+		ie.NewMBR(2000, 2000),
+		newXTQoSProfileIE(forwarder.QoSClassLatencySensitive),
+	)))
+	assert.NoError(t, sess.CreatePDR(ie.NewCreatePDR(
+		ie.NewPDRID(1),
+		ie.NewPDI(
+			ie.NewSourceInterface(ie.SrcInterfaceAccess),
+			ie.NewFTEID(1, 100, net.IPv4(172, 16, 1, 1), nil, 0),
+		),
+		ie.NewQERID(3),
+	)))
+
+	assert.NoError(t, sess.UpdateQER(ie.NewUpdateQER(
+		ie.NewQERID(3),
+		ie.NewMBR(3000, 3000),
+	)))
+
+	assert.Equal(t, &QERInfo{QFI: 8, QoSClass: forwarder.QoSClassLatencySensitive}, sess.QERIDs[3])
+	key := forwarder.QoSULFlowKey{TEID: 100, QFI: 8}
+	assert.Equal(t, forwarder.QoSFlowInfo{QFI: 8, QoSClass: forwarder.QoSClassLatencySensitive}, driver.ulUpdates[key])
+}
+
+func TestSessUpdateQERMergesQoSFieldsIndependently(t *testing.T) {
+	driver := newQoSCaptureDriver()
+	sess := newQoSTestSess(driver)
+
+	assert.NoError(t, sess.CreateQER(ie.NewCreateQER(
+		ie.NewQERID(3),
+		ie.NewQFI(8),
+		newXTQoSProfileIE(forwarder.QoSClassLatencySensitive),
+	)))
+	assert.NoError(t, sess.CreatePDR(ie.NewCreatePDR(
+		ie.NewPDRID(1),
+		ie.NewPDI(
+			ie.NewSourceInterface(ie.SrcInterfaceAccess),
+			ie.NewFTEID(1, 100, net.IPv4(172, 16, 1, 1), nil, 0),
+		),
+		ie.NewQERID(3),
+	)))
+
+	oldKey := forwarder.QoSULFlowKey{TEID: 100, QFI: 8}
+	assert.NoError(t, sess.UpdateQER(ie.NewUpdateQER(
+		ie.NewQERID(3),
+		ie.NewQFI(9),
+	)))
+	newKey := forwarder.QoSULFlowKey{TEID: 100, QFI: 9}
+	assert.Equal(t, &QERInfo{QFI: 9, QoSClass: forwarder.QoSClassLatencySensitive}, sess.QERIDs[3])
+	assert.NotContains(t, driver.ulUpdates, oldKey)
+	assert.Contains(t, driver.ulDeletes, oldKey)
+	assert.Equal(t, forwarder.QoSFlowInfo{QFI: 9, QoSClass: forwarder.QoSClassLatencySensitive}, driver.ulUpdates[newKey])
+
+	assert.NoError(t, sess.UpdateQER(ie.NewUpdateQER(
+		ie.NewQERID(3),
+		newXTQoSProfileIE(forwarder.QoSClassBackground),
+	)))
+	assert.Equal(t, &QERInfo{QFI: 9, QoSClass: forwarder.QoSClassBackground}, sess.QERIDs[3])
+	assert.Equal(t, forwarder.QoSFlowInfo{QFI: 9, QoSClass: forwarder.QoSClassBackground}, driver.ulUpdates[newKey])
+}

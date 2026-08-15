@@ -325,14 +325,18 @@ func (s *Sess) CreateQER(req *ie.IE) error {
 }
 
 func (s *Sess) UpdateQER(req *ie.IE) error {
-	id, qerInfo, err := qerInfoFromUpdateQER(req)
+	id, err := req.QERID()
 	if err != nil {
 		return err
 	}
 
-	_, ok := s.QERIDs[id]
+	current, ok := s.QERIDs[id]
 	if !ok {
 		return errors.Errorf("UpdateQER: QER(%#x) not found", id)
+	}
+	qerInfo, err := qerInfoFromUpdateQER(req, current)
+	if err != nil {
+		return err
 	}
 	if err := s.rnode.driver.UpdateQER(s.LocalID, req); err != nil {
 		return err

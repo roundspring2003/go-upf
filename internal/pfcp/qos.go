@@ -318,67 +318,96 @@ func qerInfoFromCreateQER(req *ie.IE) (uint32, *QERInfo, error) {
 	return id, &QERInfo{QFI: qfi, QoSClass: qosClass}, nil
 }
 
-func qerInfoFromUpdateQER(req *ie.IE) (uint32, *QERInfo, error) {
-	id, err := req.QERID()
-	if err != nil {
-		return 0, nil, err
+func qerInfoFromUpdateQER(req *ie.IE, current *QERInfo) (*QERInfo, error) {
+	if current == nil {
+		return nil, fmt.Errorf("missing current QER state")
 	}
 
 	ies, err := req.UpdateQER()
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 
-	qfi, err := qfiFromQERIEs(ies)
+	updated := *current
+	qfi, hasQFI, err := optionalQFIFromQERIEs(ies)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
-	qosClass, err := classifyQERQoSClass(ies)
-	if err != nil {
-		return 0, nil, err
+	if hasQFI {
+		updated.QFI = qfi
 	}
 
-	return id, &QERInfo{QFI: qfi, QoSClass: qosClass}, nil
+	qosClass, hasQoSClass, err := optionalQERQoSClass(ies)
+	if err != nil {
+		return nil, err
+	}
+	if hasQoSClass {
+		updated.QoSClass = qosClass
+	}
+
+	return &updated, nil
 }
 
 func qfiFromQERIEs(ies []*ie.IE) (uint8, error) {
+	qfi, ok, err := optionalQFIFromQERIEs(ies)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("missing QFI IE in QER")
+	}
+	return qfi, nil
+}
+
+func optionalQFIFromQERIEs(ies []*ie.IE) (uint8, bool, error) {
 	for _, i := range ies {
 		if i.Type != ie.QFI {
 			continue
 		}
 		qfi, err := i.QFI()
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		if qfi == 0 || qfi > 63 {
-			return 0, fmt.Errorf("QFI=%d is invalid", qfi)
+			return 0, false, fmt.Errorf("QFI=%d is invalid", qfi)
 		}
-		return qfi, nil
+		return qfi, true, nil
 	}
-	return 0, fmt.Errorf("missing QFI IE in QER")
+	return 0, false, nil
 }
 
 func classifyQERQoSClass(ies []*ie.IE) (uint32, error) {
+	qosClass, ok, err := optionalQERQoSClass(ies)
+	if err != nil {
+		return 0, err
+	}
+	if ok {
+		return qosClass, nil
+	}
+	return forwarder.QoSClassStandard, nil
+}
+
+func optionalQERQoSClass(ies []*ie.IE) (uint32, bool, error) {
 	for _, i := range ies {
 		if i.Type != xtQoSProfileIEType || i.EnterpriseID != xtQoSProfileEnterpriseID {
 			continue
 		}
 		if len(i.Payload) != xtQoSProfilePayloadLen {
-			return 0, fmt.Errorf("XT QoS Profile IE length=%d, want %d", len(i.Payload), xtQoSProfilePayloadLen)
+			return 0, false, fmt.Errorf("XT QoS Profile IE length=%d, want %d", len(i.Payload), xtQoSProfilePayloadLen)
 		}
 		if i.Payload[0] != xtQoSProfileVersion {
-			return 0, fmt.Errorf("XT QoS Profile IE version=%d, want %d", i.Payload[0], xtQoSProfileVersion)
+			return 0, false, fmt.Errorf("XT QoS Profile IE version=%d, want %d", i.Payload[0], xtQoSProfileVersion)
 		}
 
 		qosClass := uint32(i.Payload[1])
 		if !isValidQoSClass(qosClass) {
-			return 0, fmt.Errorf("XT QoS Profile IE qosClass=%d is invalid", qosClass)
+			return 0, false, fmt.Errorf("XT QoS Profile IE qosClass=%d is invalid", qosClass)
 		}
 
-		return qosClass, nil
+		return qosClass, true, nil
 	}
 
-	return forwarder.QoSClassStandard, nil
+	return 0, false, nil
 }
 
 func isValidQoSClass(qosClass uint32) bool {
