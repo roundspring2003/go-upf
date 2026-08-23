@@ -228,6 +228,32 @@ func TestIptablesManagerRejectsInvalidNatIfCIDR(t *testing.T) {
 	}
 }
 
+func TestGtp5gCloseCleansUpIptablesRules(t *testing.T) {
+	var calls []commandCall
+	g := &Gtp5g{
+		iptables: &IptablesManager{
+			run: func(name string, args ...string) error {
+				calls = append(calls, commandCall{name: name, args: append([]string(nil), args...)})
+				return nil
+			},
+			ownedRules: []iptablesRule{masqueradeRule("10.60.0.0/16", "lo")},
+		},
+	}
+
+	g.Close()
+	if len(calls) != 1 {
+		t.Fatalf("expected one iptables cleanup call, got %d", len(calls))
+	}
+	assertCommand(t, calls[0], "iptables", []string{
+		"-t", "nat", "-D", "POSTROUTING", "-s", "10.60.0.0/16", "-o", "lo", "-j", "MASQUERADE",
+	})
+
+	g.Close()
+	if len(calls) != 1 {
+		t.Fatalf("expected repeated Close not to delete rules again, got %d calls", len(calls))
+	}
+}
+
 func assertCommand(t *testing.T, got commandCall, wantName string, wantArgs []string) {
 	t.Helper()
 	if got.name != wantName {
