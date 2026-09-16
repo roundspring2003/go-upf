@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/free5gc/go-upf/internal/forwarder"
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/report"
 	logger_util "github.com/free5gc/util/logger"
 )
@@ -22,8 +23,10 @@ type LocalNode struct {
 	associations map[string]*PFCPAssociation // key: peer Node ID
 	sessions     *SessionStore
 
-	datapath forwarder.Driver
-	log      *logrus.Entry
+	qos       *qosmanager.Manager // optional, shared by all sessions on this UPF
+	qosTarget qosmanager.TargetResolver
+	datapath  forwarder.Driver
+	log       *logrus.Entry
 }
 
 func NewLocalNode(
@@ -135,6 +138,8 @@ func (n *LocalNode) CreateSession(
 	sess := n.sessions.Create(remoteSEID, BUFFQ_LEN, n.datapath)
 	association.sessionIDs[sess.LocalID] = struct{}{}
 	sess.association = association
+	sess.qos = n.qos
+	sess.qosTarget = n.qosTarget
 	sess.log = association.log.WithFields(
 		logrus.Fields{
 			logger_util.FieldUserPlaneSEID:    fmt.Sprintf("%#x", sess.LocalID),

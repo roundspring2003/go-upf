@@ -2,6 +2,8 @@ module github.com/free5gc/go-upf
 
 go 1.26.2
 
+replace github.com/free5gc/go-gtp5gnl => github.com/roundspring2003/go-gtp5gnl v0.0.0-20260819073615-3eefbb012a56
+
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/davecgh/go-spew v1.1.1

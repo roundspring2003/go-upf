@@ -14,6 +14,7 @@ import (
 
 	"github.com/free5gc/go-upf/internal/forwarder"
 	"github.com/free5gc/go-upf/internal/logger"
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/report"
 	"github.com/free5gc/go-upf/pkg/factory"
 	logger_util "github.com/free5gc/util/logger"
@@ -61,6 +62,11 @@ func NewPfcpServer(cfg *factory.Config, driver forwarder.Driver) *PfcpServer {
 	listen := fmt.Sprintf("%s:%d", cfg.Pfcp.Addr, factory.UpfPfcpDefaultPort)
 	log := logger.PfcpLog.WithField(logger_util.FieldListenAddr, listen)
 	localNode := NewLocalNode(cfg.Pfcp.NodeID, time.Now(), driver, log)
+	localNode.qos = qosmanager.NewManager()
+	if cfg.QoS != nil {
+		localNode.qosTarget = qosmanager.NewEgressResolver(cfg.QoS.N3Egress, cfg.QoS.N6Egress)
+		log.Infof("QoS egress mapping: DL=%s UL=%s", cfg.QoS.N3Egress, cfg.QoS.N6Egress)
+	}
 	server := &PfcpServer{
 		cfg:     cfg,
 		listen:  listen,

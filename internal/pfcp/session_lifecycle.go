@@ -61,6 +61,11 @@ func (s *Session) Close() ([]report.USAReport, error) {
 		for _, id := range result.Removed.BARs {
 			s.ApplyRemoveBAR(id)
 		}
+		// Cleanup may partially succeed. Only confirmed removals reach QoS,
+		// using a read-through view of the remaining session, without revalidation.
+		s.updateQoSPolicies(&rules.RuleChangeSet{
+			SEID: s.LocalID, RemovePDRs: result.Removed.PDRs, RemoveQERs: result.Removed.QERs,
+		}, &RuleState{sess: s})
 		for _, r := range result.USAReports {
 			r.USARTrigger.Flags |= report.USAR_TRIG_TERMR
 			s.cleanupReports = append(s.cleanupReports, r)
@@ -86,6 +91,9 @@ func (s *Session) Close() ([]report.USAReport, error) {
 		}
 		s.cleanupRetryAt = time.Now().Add(s.cleanupRetryDelay)
 		return nil, err
+	}
+	if s.qos != nil {
+		s.qos.RemoveSession(s.LocalID)
 	}
 	s.cleanupRetryAt = time.Time{}
 	reports := s.cleanupReports

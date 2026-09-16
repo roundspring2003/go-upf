@@ -25,6 +25,9 @@ type UpfApp struct {
 }
 
 func NewApp(cfg *factory.Config) (*UpfApp, error) {
+	if err := cfg.ValidateQoSEgress(); err != nil {
+		return nil, err
+	}
 	upf := &UpfApp{
 		cfg: cfg,
 	}

@@ -19,3 +19,13 @@
 |v3.3.0| v1.2.0 | >= 0.8.1 and < 0.9.0 |
 |v3.2.1| v1.1.0 | >= 0.7.0 and < 0.7.0 |
 |v3.2.0| v1.1.0 | >= 0.7.0 and < 0.7.0 |
+
+### QoS PFCP integration
+
+See [PFCP integration and logging](docs/qos_pfcp.md) for automatic QoS policy synchronization.
+
+The lab configuration is [config/upfcfg.yaml](config/upfcfg.yaml), also used by
+the default config path. It maps N3/DL to `enp0s8` and N6/UL to `enp0s9`.
+Adjust the addresses and interfaces for your deployment before starting UPF.
+FlowQoS binding requires the companion gtp5g ABI/update changes described in
+[binding integration](docs/qos_binding.md); TC/BPF enforcement is not yet implemented.

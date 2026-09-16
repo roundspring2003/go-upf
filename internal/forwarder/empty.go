@@ -1,7 +1,9 @@
 package forwarder
 
 import (
+	"github.com/free5gc/go-gtp5gnl"
 	"github.com/free5gc/go-upf/internal/report"
+	"github.com/khirono/go-nl"
 )
 
 type Empty struct{}
@@ -25,3 +27,5 @@ func (Empty) executeModificationPlan(plan *modificationPlan) (*executionResult, 
 func (Empty) executeEstablishmentPlan(plan *modificationPlan) (*executionResult, error) {
 	return newSuccessfulExecutionResult(plan), nil
 }
+
+func (Empty) updateFlowQoS(gtp5gnl.OID, nl.Attr) error { return nil }

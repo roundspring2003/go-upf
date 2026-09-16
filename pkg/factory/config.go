@@ -22,6 +22,13 @@ type Config struct {
 	Gtpu        *Gtpu     `yaml:"gtpu"        valid:"required"`
 	DnnList     []DnnList `yaml:"dnnList"     valid:"required"`
 	Logger      *Logger   `yaml:"logger"      valid:"required"`
+	QoS         *QoS      `yaml:"qos"         valid:"optional"`
+}
+
+// QoS describes deployment egress interfaces, not an enable/disable mode.
+type QoS struct {
+	N3Egress string `yaml:"n3Egress" valid:"required"`
+	N6Egress string `yaml:"n6Egress" valid:"required"`
 }
 
 type Pfcp struct {

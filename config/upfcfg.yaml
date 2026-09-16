@@ -1,0 +1,33 @@
+version: 1.0.3
+description: FlowQoS UPF configuration for the two-VM lab
+
+# SMF and UPF run in the same VM/network namespace.
+pfcp:
+  addr: 127.0.0.8
+  nodeID: 127.0.0.8
+  retransTimeout: 1s
+  maxRetrans: 3
+
+gtpu:
+  forwarder: gtp5g
+  ifList:
+    # Matches the N3 endpoint advertised by the SMF.
+    - addr: 192.168.56.103
+      type: N3
+
+dnnList:
+  - dnn: internet
+    cidr: 10.60.0.0/16
+  - dnn: internet
+    cidr: 10.61.0.0/16
+
+# Explicit TC attachment targets; no route or NAT changes are made by this block.
+# UL/DL class selection and EDT still require the subsequent BPF/TC backend.
+qos:
+  n3Egress: enp0s8 # Host-only link to the UE/gNB VM (192.168.56.104)
+  n6Egress: enp0s9 # Bridged link to the external DN/iperf server
+
+logger:
+  enable: true
+  level: info
+  reportCaller: false

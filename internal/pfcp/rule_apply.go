@@ -3,6 +3,9 @@ package pfcp
 import (
 	"fmt"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/sirupsen/logrus"
+
 	"github.com/free5gc/go-upf/internal/forwarder"
 	"github.com/free5gc/go-upf/internal/report"
 	"github.com/free5gc/go-upf/internal/rules"
@@ -48,6 +51,7 @@ func (s *Session) applyRuleChanges(changes *rules.RuleChangeSet, establish bool)
 	// Every required query is part of execution. A query error therefore reaches
 	// the normal rollback path, before any Session state is published.
 	state.Commit()
+	s.updateQoSPolicies(changes, state)
 	if result == nil {
 		return nil, nil
 	}
@@ -73,14 +77,17 @@ func (state *RuleState) Commit() {
 	for id, c := range state.farOverrides {
 		n := c.Clone()
 		s.FARIDs[id] = &n
+		s.logAppliedRule("FAR", id, &n)
 	}
 	for id, c := range state.qerOverrides {
 		n := c.Clone()
 		s.QERIDs[id] = &n
+		s.logAppliedRule("QER", id, &n)
 	}
 	for id, c := range state.barOverrides {
 		n := c.Clone()
 		s.BARIDs[id] = &n
+		s.logAppliedRule("BAR", id, &n)
 	}
 	for id, c := range state.urrOverrides {
 		info := s.URRIDs[id]
@@ -89,6 +96,7 @@ func (state *RuleState) Commit() {
 			s.URRIDs[id] = info
 		}
 		info.Config = c.Clone()
+		s.logAppliedRule("URR", id, &info.Config)
 	}
 	for id, delta := range state.urrRefDeltas {
 		if info := s.URRIDs[id]; info != nil {
@@ -98,6 +106,7 @@ func (state *RuleState) Commit() {
 	for id, c := range state.pdrOverrides {
 		n := c.Clone()
 		s.PDRIDs[id] = &n
+		s.logAppliedRule("PDR", id, &n)
 	}
 	for id := range state.removedPDRs {
 		delete(s.PDRIDs, id)
@@ -113,6 +122,13 @@ func (state *RuleState) Commit() {
 	}
 	for id := range state.removedBARs {
 		s.ApplyRemoveBAR(id)
+	}
+}
+
+// logAppliedRule prints the committed rule directly, including nested IE values.
+func (s *Session) logAppliedRule(kind string, id interface{}, config interface{}) {
+	if s.log != nil && s.log.Logger.IsLevelEnabled(logrus.DebugLevel) {
+		s.log.Debugf("%s applied: SEID=%d ID=%v rule=%s", kind, s.LocalID, id, spew.Sdump(config))
 	}
 }
 
