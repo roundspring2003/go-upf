@@ -16,7 +16,7 @@ qos:
 
 App 建立時驗證介面存在於目前 namespace，拒絕 loopback 與 upfgtp；允許 N3/N6 共用一張外部網卡。這個檢查不等於驗證 route、qdisc 或鏈路可達。
 
-PFCP server 啟動時建立 resolver，Session 沿用同一份 resolver：PDR Source Interface=Access 對應 UL/N6，Core 對應 DL/N3；其他介面仍 UnsupportedPath。PDR/QER 更新仍沿用 RuleChangeSet，不查 FAR、不新增 rule 副本或 diff。
+啟動時建立 resolver 並傳入 NewManager，由 manager 持有。PFCP LocalNode／Session 不保存 resolver，每次只傳入 RuleChangeSet 與 view。PDR Source Interface=Access 對應 UL/N6，Core 對應 DL/N3；其他介面仍 UnsupportedPath。PDR/QER 更新不查 FAR、不新增 rule 副本或 diff。
 
 Policy.Target 現在可先保留已知的 Egress；Slice 空白、ClassID=0 時仍有 MissingTarget，表示尚未完成 class 配置。沒有為了消除診斷而填入假的 slice/class。TC classid 由未來出口 BPF 設定，netlink binding 的 TCClassID 仍為 0。設定在啟動時固定，不提供執行中的 remapping。
 

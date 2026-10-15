@@ -15,7 +15,7 @@ func statePtr[T any](v T) *T { return &v }
 func newRuleStateTestSession() *Session {
 	return &Session{
 		PDRIDs: map[uint16]*rules.PDRConfig{
-			11: {PDRID: 11, FARID: statePtr(uint32(1)), QERIDs: []uint32{7}, URRIDs: []uint32{3}},
+			11: {PDRID: 11, FARID: statePtr(uint32(1)), QERIDs: map[uint32]struct{}{7: {}}, URRIDs: []uint32{3}},
 		},
 		FARIDs:   map[uint32]*rules.FARConfig{1: {FARID: 1}},
 		QERIDs:   map[uint32]*rules.QERConfig{7: {QERID: 7}},
@@ -44,7 +44,7 @@ func TestRuleStateAllowsAtomicPDRRewire(t *testing.T) {
 		PDRID: 11,
 		FARID: statePtr(uint32(2)),
 
-		QERIDs: []uint32{8},
+		QERIDs: map[uint32]struct{}{8: {}},
 
 		URRIDs: []uint32{4},
 	}}
@@ -64,7 +64,7 @@ func TestRuleStateAllowsAtomicPDRRewire(t *testing.T) {
 	if *effective.FARID != 2 {
 		t.Fatalf("effective PDR retained old FAR: %+v", effective)
 	}
-	if _, exists := uint32Set(effective.QERIDs)[8]; !exists {
+	if _, exists := effective.QERIDs[8]; !exists {
 		t.Fatalf("effective PDR is missing QER 8: %+v", effective.QERIDs)
 	}
 	if _, exists := uint32Set(effective.URRIDs)[4]; !exists {
@@ -76,7 +76,7 @@ func TestRuleStateAllowsAtomicPDRRewire(t *testing.T) {
 	if *current.FARID != 1 {
 		t.Fatalf("prepare changed current PDR state: %+v", current)
 	}
-	if _, exists := uint32Set(current.QERIDs)[7]; !exists {
+	if _, exists := current.QERIDs[7]; !exists {
 		t.Fatalf("prepare changed current QER references: %+v", current.QERIDs)
 	}
 }
@@ -109,7 +109,7 @@ func TestRuleStateRejectsDanglingPDRReferences(t *testing.T) {
 			plan: &rules.RuleChangeSet{
 				UpdatePDRs: []rules.PDRPatch{{
 					PDRID:  11,
-					QERIDs: []uint32{99},
+					QERIDs: map[uint32]struct{}{99: {}},
 				}},
 			},
 		},
@@ -168,7 +168,7 @@ func TestRuleStateAcceptsReferencesToInFlightCreates(t *testing.T) {
 			PDRID: 12,
 			FARID: statePtr(uint32(2)),
 
-			QERIDs: []uint32{8},
+			QERIDs: map[uint32]struct{}{8: {}},
 
 			URRIDs: []uint32{4},
 		}},

@@ -7,6 +7,7 @@ import (
 	"github.com/wmnsk/go-pfcp/ie"
 	"github.com/wmnsk/go-pfcp/message"
 
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/report"
 	"github.com/free5gc/go-upf/internal/rules"
 )
@@ -59,7 +60,7 @@ func (d *Dispatcher) handleSessionEstablishmentRequest(
 	}
 	if err1 != nil {
 		sess.log.Errorf("Establishment rules: %v", err1)
-		d.sendSessEstFailRsp(req, addr, pfcpCauseFromError(err1))
+		d.sendSessEstFailRsp(req, addr, pfcpCauseFromError(err1), failedQoSRuleIEs(err1)...)
 		d.node.DeleteSession(sess.LocalID)
 		return
 	}
@@ -150,7 +151,7 @@ func (d *Dispatcher) handleSessionModificationRequest(
 	}
 	if err1 != nil {
 		sess.log.Errorf("Modification rules: %v", err1)
-		d.sendSessModFailRsp(req, sess, addr, pfcpCauseFromError(err1))
+		d.sendSessModFailRsp(req, sess, addr, pfcpCauseFromError(err1), failedQoSRuleIEs(err1)...)
 		return
 	}
 
@@ -334,14 +335,16 @@ func (d *Dispatcher) sendSessEstFailRsp(
 	req *message.SessionEstablishmentRequest,
 	addr net.Addr,
 	cause uint8,
+	extra ...*ie.IE,
 ) {
+	ies := append([]*ie.IE{ie.NewCause(cause)}, extra...)
 	rsp := message.NewSessionEstablishmentResponse(
 		0, // mp
 		0, // fo
 		0, // seid (session not created)
 		req.Header.SequenceNumber,
 		0, // pri
-		ie.NewCause(cause),
+		ies...,
 	)
 	if err := d.transport.sendRspTo(rsp, addr); err != nil {
 		d.log.Errorln(err)
@@ -353,19 +356,29 @@ func (d *Dispatcher) sendSessModFailRsp(
 	sess *Session,
 	addr net.Addr,
 	cause uint8,
+	extra ...*ie.IE,
 ) {
+	ies := append([]*ie.IE{ie.NewCause(cause)}, extra...)
 	rsp := message.NewSessionModificationResponse(
 		0,             // mp
 		0,             // fo
 		sess.RemoteID, // seid
 		req.Header.SequenceNumber,
 		0, // pri
-		ie.NewCause(cause),
+		ies...,
 	)
 	err := d.transport.sendRspTo(rsp, addr)
 	if err != nil {
 		d.log.Errorln(err)
 	}
+}
+
+func failedQoSRuleIEs(err error) []*ie.IE {
+	var conflict *qosmanager.AmbiguousQFIError
+	if errors.As(err, &conflict) {
+		return []*ie.IE{ie.NewFailedRuleID(ie.RuleIDTypePDR, uint32(conflict.PDRID))}
+	}
+	return nil
 }
 
 func pfcpCauseFromError(err error) uint8 {

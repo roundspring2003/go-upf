@@ -13,6 +13,7 @@ import (
 	"github.com/wmnsk/go-pfcp/message"
 
 	"github.com/free5gc/go-upf/internal/forwarder"
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/rules"
 	"github.com/free5gc/go-upf/pkg/factory"
 )
@@ -78,6 +79,17 @@ func modifyQoSSession(t *testing.T, d *Dispatcher, transport *messageTransportMo
 	require.Equal(t, ie.CauseRequestAccepted, cause)
 }
 
+func rejectQoSModification(t *testing.T, d *Dispatcher, transport *messageTransportMock, s *Session, ies ...*ie.IE) *message.SessionModificationResponse {
+	t.Helper()
+	req := message.NewSessionModificationRequest(0, 0, s.LocalID, 2, 0, ies...)
+	require.NoError(t, d.HandleRequest(req, s.association.peerAddr))
+	rsp := transport.rsp.(*message.SessionModificationResponse)
+	cause, err := rsp.Cause.Cause()
+	require.NoError(t, err)
+	require.Equal(t, ie.CauseRuleCreationModificationFailure, cause)
+	return rsp
+}
+
 func lastAppliedRule(t *testing.T, hook *logtest.Hook, kind string) string {
 	t.Helper()
 	entries := hook.AllEntries()
@@ -97,7 +109,7 @@ func TestQoSRequestLifecycle(t *testing.T) {
 	require.Same(t, d.node.qos, s.qos)
 	initial := s.qos.Policies(s.LocalID)
 	require.Len(t, initial, 2)
-	require.Equal(t, []uint32{7, 9}, initial[0].QERIDs)
+	require.Equal(t, map[uint32]struct{}{7: {}, 9: {}}, s.PDRIDs[11].QERIDs)
 	require.Equal(t, uint8(5), *initial[0].QFI)
 	require.Equal(t, rules.MissingTarget, initial[0].Diagnostics[0].Code)
 	for _, kind := range []string{"PDR", "FAR", "QER"} {
@@ -117,16 +129,21 @@ func TestQoSRequestLifecycle(t *testing.T) {
 	require.Equal(t, uint8(6), *updated[0].QFI)
 	require.Equal(t, initial[1], updated[1])
 
-	// A QFI conflict is observable without rejecting already applied forwarding rules.
-	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(5)))
-	for _, p := range s.qos.Policies(s.LocalID) {
-		require.Nil(t, p.QFI)
-		require.Equal(t, rules.AmbiguousQFI, p.Diagnostics[len(p.Diagnostics)-1].Code)
-	}
+	// Only PDR 11 conflicts: QER 7 has QFI 6, QER 9 requests QFI 9.
+	rsp := rejectQoSModification(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(9)))
+	require.NotNil(t, rsp.FailedRuleID)
+	ruleType, err := rsp.FailedRuleID.RuleIDType()
+	require.NoError(t, err)
+	require.Equal(t, ie.RuleIDTypePDR, ruleType)
+	failedID, err := rsp.FailedRuleID.FailedRuleID()
+	require.NoError(t, err)
+	require.Equal(t, uint32(11), failedID)
+	require.Nil(t, s.QERIDs[9].QFI)
+	require.Equal(t, updated, s.qos.Policies(s.LocalID))
 	modifyQoSSession(t, d, transport, s, ie.NewUpdatePDR(ie.NewPDRID(12), ie.NewQERID(8)))
 	p, ok := s.qos.Policy(rules.PDRKey{SEID: s.LocalID, PDRID: 12})
 	require.True(t, ok)
-	require.Equal(t, []uint32{8}, p.QERIDs)
+	require.Equal(t, map[uint32]struct{}{8: {}}, s.PDRIDs[12].QERIDs)
 	require.Equal(t, uint8(9), *p.QFI)
 
 	modifyQoSSession(t, d, transport, s, ie.NewRemovePDR(ie.NewPDRID(11)))
@@ -182,10 +199,64 @@ func TestQoSFailedRulesDoNotUpdatePolicies(t *testing.T) {
 	require.Empty(t, hook.AllEntries(), "failed operations must not publish QoS events")
 
 	// A policy update error is logged locally, without throwing away rules.
-	s.updateQoSPolicies(changes, nil)
+	s.updateQoSPolicies(nil)
 	require.Contains(t, hook.LastEntry().Message, "QoS policy update failed")
 	require.Equal(t, original, s.qos.Policies(s.LocalID))
 	require.Contains(t, s.PDRIDs, uint16(11))
+}
+
+func TestQoSConflictRejectedBeforeForwarding(t *testing.T) {
+	d, transport, _ := qosDispatcher(t)
+	s := establishQoSSession(t, d, transport)
+	before := s.qos.Policies(s.LocalID)
+	backend := &transactionDatapath{SessionDatapath: s.datapath, apply: func(*rules.RuleChangeSet) (*forwarder.ApplyResult, error) {
+		t.Fatal("forwarding executed before QFI conflict was rejected")
+		return nil, nil
+	}}
+	s.datapath = backend
+	changes, err := s.ParseModificationChanges(&message.SessionModificationRequest{
+		UpdateQER: []*ie.IE{ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(9))},
+	})
+	require.NoError(t, err)
+	validated, err := s.ValidateRuleState(changes)
+	require.Nil(t, validated)
+	require.ErrorIs(t, err, qosmanager.ErrAmbiguousQFI)
+	require.ErrorIs(t, err, ErrRuleCreationModificationFailed)
+	require.Zero(t, backend.calls)
+	require.Nil(t, s.QERIDs[9].QFI)
+	require.Equal(t, before, s.qos.Policies(s.LocalID))
+	_, err = s.applyRuleChanges(changes, false)
+	require.ErrorIs(t, err, ErrRuleCreationModificationFailed)
+	require.Zero(t, backend.calls)
+	require.Nil(t, s.QERIDs[9].QFI)
+	require.Equal(t, before, s.qos.Policies(s.LocalID))
+}
+
+func TestQoSConflictRejectsSessionEstablishment(t *testing.T) {
+	d, transport, _ := qosDispatcher(t)
+	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 8805}
+	d.node.EstablishAssociation("127.0.0.2", addr)
+	req := message.NewSessionEstablishmentRequest(0, 0, 0, 1, 0,
+		ie.NewNodeID("127.0.0.2", "", ""), ie.NewFSEID(100, addr.IP.To4(), nil),
+		ie.NewCreateFAR(ie.NewFARID(1), ie.NewApplyAction(2),
+			ie.NewForwardingParameters(ie.NewDestinationInterface(ie.DstInterfaceCore))),
+		ie.NewCreatePDR(ie.NewPDRID(11), ie.NewPrecedence(100),
+			ie.NewPDI(ie.NewSourceInterface(ie.SrcInterfaceAccess)),
+			ie.NewFARID(1), ie.NewQERID(7), ie.NewQERID(9)),
+		ie.NewCreateQER(ie.NewQERID(7), ie.NewGateStatus(0, 0), ie.NewQFI(5)),
+		ie.NewCreateQER(ie.NewQERID(9), ie.NewGateStatus(0, 0), ie.NewQFI(9)))
+	require.NoError(t, d.HandleRequest(req, addr))
+	rsp := transport.rsp.(*message.SessionEstablishmentResponse)
+	cause, err := rsp.Cause.Cause()
+	require.NoError(t, err)
+	require.Equal(t, ie.CauseRuleCreationModificationFailure, cause)
+	require.NotNil(t, rsp.FailedRuleID)
+	failedID, err := rsp.FailedRuleID.FailedRuleID()
+	require.NoError(t, err)
+	require.Equal(t, uint32(11), failedID)
+	require.Empty(t, d.node.qos.Policies(1))
+	_, err = d.node.Session(1)
+	require.Error(t, err)
 }
 
 func TestQoSAssociationCleanupTracksConfirmedRemovals(t *testing.T) {

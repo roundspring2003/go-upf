@@ -3,6 +3,7 @@ package pfcp
 import (
 	"testing"
 
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/rules"
 	"github.com/free5gc/go-upf/pkg/factory"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestQoSPolicyEgressFollowsSourceInterface(t *testing.T) {
 	require.Equal(t, id, p.ID)
 	require.Equal(t, rules.Downlink, p.Direction)
 	require.Equal(t, "n3", p.Target.Egress)
-	require.Equal(t, []uint32{7, 9}, p.QERIDs)
+	require.Equal(t, map[uint32]struct{}{7: {}, 9: {}}, s.PDRIDs[11].QERIDs)
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(6)))
 	p, _ = s.qos.Policy(key)
 	require.Equal(t, "n3", p.Target.Egress)
@@ -40,4 +41,21 @@ func TestQoSPolicyEgressFollowsSourceInterface(t *testing.T) {
 	require.Equal(t, rules.Unknown, p.Direction)
 	require.Nil(t, p.Target)
 	require.Equal(t, rules.UnsupportedPath, p.Diagnostics[0].Code)
+}
+
+func TestQoSEgressClassAssignment(t *testing.T) {
+	cfg := &factory.QoS{N3Egress: "n3", N6Egress: "n6"}
+	d, transport, _ := qosDispatcher(t, cfg)
+	b := &recordingEgress{}
+	d.node.qos = qosmanager.NewManager(qosmanager.NewEgressResolver(
+		rules.Target{Egress: "n3"}, rules.Target{Egress: "n6"}), b)
+	s := establishQoSSession(t, d, transport)
+	b.SessionDatapath = s.datapath
+	s.datapath = b
+	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(6)))
+	key := rules.PDRKey{SEID: s.LocalID, PDRID: 11}
+	p, ok := s.qos.Policy(key)
+	require.True(t, ok)
+	require.Equal(t, uint32(0xe0010002), p.Target.ClassID)
+	require.Empty(t, p.Diagnostics)
 }

@@ -257,3 +257,14 @@ func TestURRSnapshotPreservesOmittedReportingFields(t *testing.T) {
 	require.True(t, old.ReportingTrigger.PERIO())
 	require.Len(t, old.Attrs, 3)
 }
+
+func TestCompilePDRQERSetUsesStableAttributeOrder(t *testing.T) {
+	plan, err := compilePDR(10, rules.PDRConfig{
+		PDRID: 11, QERIDs: map[uint32]struct{}{9: {}, 7: {}},
+	}, OpUpdate)
+	require.NoError(t, err)
+	require.Equal(t, []nl.Attr{
+		{Type: gtp5gnl.PDR_QER_ID, Value: nl.AttrU32(7)},
+		{Type: gtp5gnl.PDR_QER_ID, Value: nl.AttrU32(9)},
+	}, plan.Attrs)
+}

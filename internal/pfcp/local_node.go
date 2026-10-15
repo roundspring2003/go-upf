@@ -23,10 +23,9 @@ type LocalNode struct {
 	associations map[string]*PFCPAssociation // key: peer Node ID
 	sessions     *SessionStore
 
-	qos       *qosmanager.Manager // optional, shared by all sessions on this UPF
-	qosTarget qosmanager.TargetResolver
-	datapath  forwarder.Driver
-	log       *logrus.Entry
+	qos      *qosmanager.Manager // optional, shared by all sessions on this UPF
+	datapath forwarder.Driver
+	log      *logrus.Entry
 }
 
 func NewLocalNode(
@@ -139,7 +138,6 @@ func (n *LocalNode) CreateSession(
 	association.sessionIDs[sess.LocalID] = struct{}{}
 	sess.association = association
 	sess.qos = n.qos
-	sess.qosTarget = n.qosTarget
 	sess.log = association.log.WithFields(
 		logrus.Fields{
 			logger_util.FieldUserPlaneSEID:    fmt.Sprintf("%#x", sess.LocalID),

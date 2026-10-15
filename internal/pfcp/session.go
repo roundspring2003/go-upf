@@ -32,19 +32,18 @@ type Session struct {
 
 	association *PFCPAssociation // remote PFCP association that owns this session
 
-	qos       *qosmanager.Manager // borrowed from LocalNode; accessed only by the event loop
-	qosTarget qosmanager.TargetResolver
-	datapath  forwarder.SessionDatapath // execution handle owned by this session
-	LocalID   uint64
-	RemoteID  uint64
-	PDRIDs    map[uint16]*rules.PDRConfig // key: PDR_ID
-	FARIDs    map[uint32]*rules.FARConfig // key: FAR_ID
-	QERIDs    map[uint32]*rules.QERConfig // key: QER_ID
-	URRIDs    map[uint32]*URRInfo         // key: URR_ID
-	BARIDs    map[uint8]*rules.BARConfig  // key: BAR_ID
-	q         map[uint16]chan []byte
-	qlen      int
-	log       *logrus.Entry
+	qos      *qosmanager.Manager       // borrowed from LocalNode; accessed only by the event loop
+	datapath forwarder.SessionDatapath // execution handle owned by this session
+	LocalID  uint64
+	RemoteID uint64
+	PDRIDs   map[uint16]*rules.PDRConfig // key: PDR_ID
+	FARIDs   map[uint32]*rules.FARConfig // key: FAR_ID
+	QERIDs   map[uint32]*rules.QERConfig // key: QER_ID
+	URRIDs   map[uint32]*URRInfo         // key: URR_ID
+	BARIDs   map[uint8]*rules.BARConfig  // key: BAR_ID
+	q        map[uint16]chan []byte
+	qlen     int
+	log      *logrus.Entry
 }
 
 func (s *Session) Push(pdrid uint16, p []byte) {

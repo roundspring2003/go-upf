@@ -51,7 +51,7 @@ func (s *Session) applyRuleChanges(changes *rules.RuleChangeSet, establish bool)
 	// Every required query is part of execution. A query error therefore reaches
 	// the normal rollback path, before any Session state is published.
 	state.Commit()
-	s.updateQoSPolicies(changes, state)
+	s.updateQoSPolicies(state.qosPlan)
 	if result == nil {
 		return nil, nil
 	}

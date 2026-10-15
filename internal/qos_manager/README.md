@@ -1,47 +1,48 @@
 # qos_manager
 
-The manager uses existing PFCP RuleChangeSet and RuleState data to update
+The manager reads affected PDRs from the validated PFCP RuleState to update
 PDR policies. It stores only current policies and a local packet ID counter.
 There is no Constraint graph, copied QER database, reverse reference table,
-Plan/Commit/Abort API, retained snapshot or QoS rollback mechanism.
+retained snapshot or QoS rollback mechanism. Prepare temporarily holds one
+request's computed policies until forwarding succeeds.
 
 ## Data
 
 `internal/rules/qos.go` defines Policy with its PDR key, packet PolicyID,
-direction, target, QER IDs, QFI summary/sources and diagnostics. QER IDs are
-retained for the derived binding; complete MBR/GBR/Gate configurations remain
-in the existing Session/RuleState and follow the existing forwarder path.
+direction, target, QFI summary/sources and diagnostics. Full QER references
+and MBR/GBR/Gate configurations remain in Session/RuleState and follow the
+existing forwarder path.
 
-RuleView reuses `PDR`, `QER` and `RangePDR` from RuleState. It must contain the
-complete validated result of the same request. The manager does not parse PFCP,
+RuleView reuses `QER`, `QFIUpdated`, `RangeQoSCandidates`, and `RangeRemovedPDR` from
+RuleState. It must contain the validated result of the same request. The manager does not parse PFCP,
 merge patches or revalidate references. A missing lookup reports a violated view
 contract. Direction comes only from PDR Source Interface; target mapping is
-explicit. QFI sources are all retained, with AmbiguousQFI when values conflict.
+explicit. QFI sources are all retained; conflicting values reject the request.
 
 ## Updating policies
 
 ```go
-manager := qosmanager.NewManager()
-// After existing validation and successful datapath application:
-changed, err := manager.Apply(changes, validatedState, resolver)
+manager := qosmanager.NewManager(resolver)
+prepared, err := manager.Prepare(seid, validatedState) // before forwarding
+// After forwarding succeeds and the PFCP state is committed:
+changed, err := manager.ApplyPrepared(prepared)
 policies := manager.Policies(changes.SEID)
 ```
 
-- CreatePDR / UpdatePDR: look up the complete PDR by ID and build its policy.
-  Editing one PDR does not refresh other users of its old/new QERs.
-- RemovePDR: remove that policy. Original QERs remain owned by PFCP.
-- UpdateQER containing QFI: scan the current PDR.QERIDs to refresh affected QFI
-  summaries. Mixed PDR/QER changes use the final view; created policies are not
-  also reported as updated.
-- MBR/GBR/Gate-only UpdateQER: no policy work. These fields are not stored in a
-  policy. Existing QER forwarding still handles them; a future rate backend
-  must consume those original QER changes even when policy Changes is empty.
-- Empty/FAR/URR requests: no policy work or rule scan.
+- Prepare reads PDRs created or updated by the request, derives their policies,
+  and compares them with current manager policies. Unchanged policies do not
+  rewrite TC or PDR bindings.
+- PDRs explicitly removed by the request have their policies removed.
+- A QFI update visits the final PDR state. The manager checks whether each PDR
+  references the updated QER while deriving its QFI in one QER ID traversal,
+  and refreshes only affected policies.
+- MBR/GBR/Gate-only changes do not visit PDRs or rewrite QoS policies and TC.
 
-Apply changes current memory in one call, without an external commit stage.
-It finishes reads and capacity checks before editing the policy map, so a local
-error does not leave half an update. This does not provide external rollback or
-atomicity with the forwarder/BPF backend.
+Prepare rejects conflicting QFI values and checks capacity before any forwarding
+or TC change. ApplyPrepared updates current policies and their TC resources.
+TC errors are reported per operation;
+successful policies are returned for PDR binding. This does not provide external
+rollback or atomicity with the forwarder.
 
 Use the existing PFCP event loop as the single owner and serialize all access.
 Deliver successful requests from initial creation onward. Empty changes do not
@@ -54,7 +55,8 @@ copied into the manager. IDs occupy 1..0x00ffffff, remain stable for live PDRs,
 and are not reused after removal. Exhaustion returns ErrIDExhausted.
 
 RemoveSession deletes policies only after every session PDR is confirmed gone.
-For partial cleanup, Apply only confirmed RemovePDRs with the remaining view.
+For partial cleanup, RemoveConfirmedPDRs handles only datapath-confirmed PDR
+removals because other remaining rule references may be temporarily incomplete.
 
 ## Future backend
 
@@ -68,10 +70,12 @@ Steps 1–4 are implemented. Production PFCP wiring calls Apply after successful
 rule execution/publication and follows confirmed cleanup removals. The manager
 is created at UPF startup without a mode switch. Update logs use the existing
 logger at debug level. See [PFCP integration](../../docs/qos_pfcp.md) for details.
-No binding, TC/BPF operation or packet pacing runs from this package.
-The PFCP caller now sends policy bindings through the existing session datapath;
-see [binding integration](../../docs/qos_binding.md). Egress BPF will own classid.
+The manager installs TC classes and updates the egress BPF policy map. The PFCP
+caller sends only successful PDR bindings through the existing session datapath;
+see [binding integration](../../docs/qos_binding.md). Packet pacing remains future work.
 Deployment `qos.n3Egress` / `qos.n6Egress` settings now feed the target resolver.
+Manager owns this resolver from construction; PFCP sessions pass the session ID
+and validated view to Apply.
 The target retains a known egress while MissingTarget remains until slice/class
 configuration is supplied. See [egress configuration](../../docs/qos_egress.md).
 Existing forwarder rollback code is outside this change and remains unchanged.

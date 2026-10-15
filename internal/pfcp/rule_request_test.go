@@ -91,7 +91,7 @@ func TestTypedPatchesPreservePresence(t *testing.T) {
 	require.NotNil(t, changes.UpdatePDRs[0].Precedence)
 	require.Zero(t, *changes.UpdatePDRs[0].Precedence)
 	require.Nil(t, changes.UpdatePDRs[0].FARID)
-	require.Equal(t, []uint32{4}, changes.UpdatePDRs[0].QERIDs)
+	require.Equal(t, map[uint32]struct{}{4: {}}, changes.UpdatePDRs[0].QERIDs)
 	require.Nil(t, changes.UpdatePDRs[0].URRIDs)
 	require.NotNil(t, changes.UpdateFARs[0].ForwardingParameters)
 	require.Nil(t, changes.UpdateFARs[0].ForwardingParameters.OuterHeaderCreation)

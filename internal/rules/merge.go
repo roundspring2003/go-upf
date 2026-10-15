@@ -1,7 +1,9 @@
 package rules
 
+import "maps"
+
 // Clone and Merge return independently owned configurations. Nil patch fields
-// preserve the current value; present zero values and empty slices are applied.
+// preserve the current value; present zero values and empty collections are applied.
 func copyValue[T any](p *T) *T {
 	if p == nil {
 		return nil
@@ -22,7 +24,7 @@ func (c PDRConfig) Clone() PDRConfig {
 	c.PDI = clonePDI(c.PDI)
 	c.OuterHeaderRemoval = copyValue(c.OuterHeaderRemoval)
 	c.FARID = copyValue(c.FARID)
-	c.QERIDs = copySlice(c.QERIDs)
+	c.QERIDs = maps.Clone(c.QERIDs)
 	c.URRIDs = copySlice(c.URRIDs)
 	return c
 }

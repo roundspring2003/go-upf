@@ -1,10 +1,12 @@
 package pfcp
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/pkg/errors"
 
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/internal/rules"
 )
 
@@ -13,22 +15,25 @@ import (
 // Views are read-only; the caller must serialize validation, execution and commit
 // against other changes to the same session.
 type RuleState struct {
-	sess         *Session
-	urrRefDeltas map[uint32]int
-	pdrOverrides map[uint16]*rules.PDRConfig
-	removedPDRs  map[uint16]struct{}
-	farOverrides map[uint32]*rules.FARConfig
-	removedFARs  map[uint32]struct{}
-	qerOverrides map[uint32]*rules.QERConfig
-	removedQERs  map[uint32]struct{}
-	urrOverrides map[uint32]*rules.URRConfig
-	removedURRs  map[uint32]struct{}
-	barOverrides map[uint8]*rules.BARConfig
-	removedBARs  map[uint8]struct{}
+	sess           *Session
+	qosPlan        *qosmanager.Prepared
+	urrRefDeltas   map[uint32]int
+	pdrOverrides   map[uint16]*rules.PDRConfig
+	removedPDRs    map[uint16]struct{}
+	farOverrides   map[uint32]*rules.FARConfig
+	removedFARs    map[uint32]struct{}
+	qerOverrides   map[uint32]*rules.QERConfig
+	removedQERs    map[uint32]struct{}
+	qfiUpdatedQERs map[uint32]struct{}
+	urrOverrides   map[uint32]*rules.URRConfig
+	removedURRs    map[uint32]struct{}
+	barOverrides   map[uint8]*rules.BARConfig
+	removedBARs    map[uint8]struct{}
 }
 
-// ValidateRuleState checks the complete request without changing Session or
-// calling the datapath. Commit is valid only after successful execution.
+// ValidateRuleState checks PFCP rules and prepares QoS without changing
+// Session, manager policies, TC, or the forwarding datapath. Commit is valid
+// only after successful forwarding execution.
 func (s *Session) ValidateRuleState(changes *rules.RuleChangeSet) (*RuleState, error) {
 	if changes == nil {
 		return nil, errors.Wrap(ErrRuleCreationModificationFailed, "nil RuleChangeSet")
@@ -45,6 +50,13 @@ func (s *Session) ValidateRuleState(changes *rules.RuleChangeSet) (*RuleState, e
 		return nil, err
 	}
 	state.buildURRReferenceDeltas()
+	if s.qos != nil {
+		plan, err := s.qos.Prepare(s.LocalID, state)
+		if err != nil {
+			return nil, fmt.Errorf("%w: QoS preparation: %w", ErrRuleCreationModificationFailed, err)
+		}
+		state.qosPlan = plan
+	}
 	return state, nil
 }
 
@@ -148,6 +160,12 @@ func (state *RuleState) buildOverlays(changes *rules.RuleChangeSet) {
 		state.qerOverrides[c.QERID] = &n
 	}
 	for _, p := range changes.UpdateQERs {
+		if p.QFI != nil {
+			if state.qfiUpdatedQERs == nil {
+				state.qfiUpdatedQERs = make(map[uint32]struct{})
+			}
+			state.qfiUpdatedQERs[p.QERID] = struct{}{}
+		}
 		c, _ := state.QER(p.QERID)
 		n := c.Merge(p)
 		state.qerOverrides[p.QERID] = &n
@@ -233,6 +251,53 @@ func (state *RuleState) BAR(id uint8) (*rules.BARConfig, bool) {
 	}
 	c, ok := state.sess.BARIDs[id]
 	return c, ok
+}
+
+// QFIUpdated reports whether this request changed the QFI of a QER.
+func (state *RuleState) QFIUpdated(id uint32) bool {
+	_, updated := state.qfiUpdatedQERs[id]
+	return updated
+}
+
+// RangeQoSCandidates visits changed PDRs. A QFI update also makes every
+// unchanged PDR a candidate; the manager checks references while deriving QFI.
+// Each PDR is visited at most once. The last argument marks changed PDRs.
+func (state *RuleState) RangeQoSCandidates(
+	visit func(id uint16, info *rules.PDRConfig, changed bool) error,
+) error {
+	for id, info := range state.pdrOverrides {
+		if _, removed := state.removedPDRs[id]; removed {
+			continue
+		}
+		if err := visit(id, info, true); err != nil {
+			return err
+		}
+	}
+	if len(state.qfiUpdatedQERs) == 0 {
+		return nil
+	}
+	for id, info := range state.sess.PDRIDs {
+		if _, removed := state.removedPDRs[id]; removed {
+			continue
+		}
+		if _, changed := state.pdrOverrides[id]; changed {
+			continue
+		}
+		if err := visit(id, info, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RangeRemovedPDR visits PDRs removed by this request.
+func (state *RuleState) RangeRemovedPDR(visit func(id uint16) error) error {
+	for id := range state.removedPDRs {
+		if err := visit(id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RangePDR visits every PDR in the effective final state without copying
@@ -367,7 +432,7 @@ func (state *RuleState) validateReferences() error {
 				return errors.Wrapf(ErrRuleCreationModificationFailed, "PDR %d references missing FAR %d", id, *c.FARID)
 			}
 		}
-		for _, qid := range c.QERIDs {
+		for qid := range c.QERIDs {
 			if _, ok := state.QER(qid); !ok {
 				return errors.Wrapf(ErrRuleCreationModificationFailed, "PDR %d references missing QER %d", id, qid)
 			}

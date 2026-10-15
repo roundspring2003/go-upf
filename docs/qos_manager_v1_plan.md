@@ -63,18 +63,18 @@
 4. 驗證 UL/DL rate 引用與 DL GTP-U QFI；此檢查獨立於 skb mark/priority。
 
 
-## 3. 核心模型：policy 沿用 QER 引用
+## 3. 核心模型：policy 從 PDR 衍生 QFI
 
 ```text
 PFCP Session 10
-  PDR 11.QERIDs = [7, 9] -> Policy 11.QERIDs = [7, 9]
-  PDR 12.QERIDs = [8, 9] -> Policy 12.QERIDs = [8, 9]
+  PDR 11.QERIDs = {7, 9} -> Policy 11.QFISources = {7: 5}
+  PDR 12.QERIDs = {8, 9} -> Policy 12.QFISources = {8: 9}
 
 MBR/GBR/Gate/QFI 的完整設定：仍在 Session/RuleState 的 QERConfig
-Policy：Key、PolicyID、Direction、Target、QERIDs、QFI 摘要/來源、Diagnostics
+Policy：Key、PolicyID、Direction、Target、QFI 摘要/來源、Diagnostics
 ```
 
-Policy 保留 QER IDs 作為衍生 binding 所需引用，不複製完整 PDR 或 QER。沒有 Constraint、ReferencedBy 或另一個 QER database。全部 QER 引用保留並排序去重，不只取第一個 QER。
+完整 QER 引用只由 PDR 保存；Policy 不複製整份 PDR 或 QER，只保存 QFI 摘要與來源。沒有 Constraint、ReferencedBy 或另一個 QER database。
 
 - PDRKey = (LocalSEID, PDRID)。PolicyID 為全 UPF 本地 24-bit 數字，與 QFI/QERID 無關。
 - 同一 PDR 更新保留 PolicyID；移除後暫不重用數字。只有一個遞增 counter，沒有另一套資源 reservation registry。
@@ -95,7 +95,7 @@ Policy 保留 QER IDs 作為衍生 binding 所需引用，不複製完整 PDR �
 
 未來 rate backend 直接讀取同一份 RuleChangeSet 與合併後 QER 更新共享設定，不能把「policy Changes 為空」誤解成沒有 QER 更新。
 
-QFI 衝突仍保留 AmbiguousQFI，policy.QFI 為 nil；不依第一個/最後一個或非 1 heuristic 選值。QFI-only/gate-only QER 僅作為普通 QER 引用，不為它建立虛構的限速物件。
+QFI 衝突在套用 forwarding 前拒絕整個 PFCP 請求；不依第一個/最後一個或非 1 heuristic 選值。QFI-only/gate-only QER 僅作為普通 QER 引用，不為它建立虛構的限速物件。
 
 驗證及 patch 合併由既有 PFCP 層負責；manager 的 lookup error 只防止已驗證 view 失效。明確 Update 即使值相同也更新，不做相等比較。僅 QFI 更新需要掃描引用，PDR-only 操作直接查 ID。
 
@@ -124,7 +124,7 @@ Manager 沒有 graph/history/pending plan。Apply 完成即更新當前記憶體
 Parse request -> RuleChangeSet
 ValidateRuleState(changes) -> 完整唯讀 view
 既有 datapath 執行成功 -> Session state.Commit()
-manager.Apply(changes, view, resolver) -> 直接更新 policy
+manager.Apply(changes, view) -> 使用 manager 持有的 resolver 直接更新 policy
 ```
 
 - manager 從建立 session 開始接收每次成功操作。空 changes 不會從既有 Session 自動重建 policy。
@@ -133,7 +133,7 @@ manager.Apply(changes, view, resolver) -> 直接更新 policy
 - `Session.updateQoSPolicies()` 在 state.Commit() 後更新 policy；Apply 本地錯誤輸出 Error log，不改 PFCP 成功回覆，不宣稱跨元件原子提交。
 - 完整清理後呼叫 RemoveSession；部分清理只傳已確認移除的 RemovePDRs。
 - UPF 啟動時直接建立 manager，由 LocalNode 持有並分享給 Session，無額外模式開關。
-- 正式接線使用設定檔的 n3Egress/n6Egress resolver；省略設定時沒有 mapping。Target 先保留出口，Slice/ClassID 未配置時仍保留 MissingTarget；實際 class/BPF 屬於 5-4。
+- 正式接線在 NewManager(resolver) 時傳入設定檔的 n3Egress/n6Egress resolver，由 manager 保存；PFCP 不保存或逐次傳遞 resolver。省略設定時沒有 mapping。Target 先保留出口，Slice/ClassID 未配置時仍保留 MissingTarget；實際 class/BPF 屬於 5-4。
 - 非 PFCP target remapping 尚未提供。
 - RuleState.Commit 沿用既有 logger，逐筆輸出成功建立／更新的 PDR、FAR、QER、URR、BAR 設定（debug）；直接印出既有 rule，不另外建立日誌結構或組裝 JSON。
 - 後續 backend 資源更新若失敗，須明確回報失敗，不宣稱已完成 enforcement；目前不預建補償框架。
@@ -267,7 +267,7 @@ Manager 隨 PFCP 規則更新，不另設模式開關，日誌由既有 logger �
 
 ## 9. 驗證
 
-已實作測試涵蓋 PDR 更新只影響自己、相同數值仍更新、速率/Gate 更新不讀取或重建 policy、QFI 更新遍歷最終引用、同次新增/更新/刪除、清除最後引用與 QFI、session 隔離、方向、完整 QERIDs、診斷、ID 耗盡與查詢資料隔離。
+已實作測試涵蓋 PDR 更新只影響自己、相同數值仍更新、速率/Gate 更新不讀取或重建 policy、QFI 更新遍歷最終引用、同次新增/更新/刪除、清除最後引用與 QFI、session 隔離、方向、PDR 端完整 QER 引用、診斷、ID 耗盡與查詢資料隔離。
 
 PFCP 測試使用真實 parser、ValidateRuleState 及 dispatcher，確認 kbps-to-bps、更新保留 GBR/Gate/QFI，缺失引用仍由既有驗證拒絕。第四步另外驗證建立/更新/刪除、disabled、QFI 衝突不拒絕 forwarding、部分清理、association 替換與 SEID 重用。
 
@@ -284,8 +284,7 @@ go build ./...
 ```text
 manager.Policies(LocalSEID)
   PolicyID, PDRID, Direction, Target
-  QERIDs=[7,9]
-  QFI=5, QFISources=[QER7]
+  QFI=5, QFISources={7:5}
   Diagnostics=[...]
 
 要看 rate/gate：讀取既有 Session/RuleState.QER(7)、QER(9)

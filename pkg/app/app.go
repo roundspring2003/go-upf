@@ -13,6 +13,7 @@ import (
 	"github.com/free5gc/go-upf/internal/forwarder"
 	"github.com/free5gc/go-upf/internal/logger"
 	"github.com/free5gc/go-upf/internal/pfcp"
+	qosmanager "github.com/free5gc/go-upf/internal/qos_manager"
 	"github.com/free5gc/go-upf/pkg/factory"
 )
 
@@ -21,6 +22,7 @@ type UpfApp struct {
 	wg         sync.WaitGroup
 	cfg        *factory.Config
 	driver     forwarder.Driver
+	qos        *qosmanager.Manager
 	pfcpServer *pfcp.PfcpServer
 }
 
@@ -79,8 +81,19 @@ func (u *UpfApp) Run() error {
 	if err != nil {
 		return err
 	}
+	if u.cfg.QoS != nil {
+		u.qos, err = qosmanager.OpenManager(u.cfg.QoS.N3Egress, u.cfg.QoS.N6Egress)
+		if err != nil {
+			cancel()
+			u.wg.Wait()
+			return err
+		}
+	}
 
-	u.pfcpServer = pfcp.NewPfcpServer(u.cfg, u.driver)
+	if u.qos == nil {
+		u.qos = qosmanager.NewManager(nil)
+	}
+	u.pfcpServer = pfcp.NewPfcpServer(u.cfg, u.driver, u.qos)
 	u.driver.HandleReport(u.pfcpServer)
 	u.pfcpServer.Start(&u.wg)
 
@@ -121,6 +134,11 @@ func (u *UpfApp) listenShutdownEvent() {
 
 func (u *UpfApp) WaitRoutineStopped() {
 	u.wg.Wait()
+	if u.qos != nil {
+		if err := u.qos.Close(); err != nil {
+			logger.MainLog.Warnf("QoS TC cleanup failed: %v", err)
+		}
+	}
 	u.Terminate()
 }
 

@@ -18,7 +18,7 @@ type PDRConfig struct {
 	PDI                *PDI
 	OuterHeaderRemoval *uint8
 	FARID              *uint32
-	QERIDs             []uint32
+	QERIDs             map[uint32]struct{}
 	URRIDs             []uint32
 }
 type PDRPatch PDRConfig

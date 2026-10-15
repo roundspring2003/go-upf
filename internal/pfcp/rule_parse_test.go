@@ -184,3 +184,22 @@ func TestRuleParsersRejectMissingMandatoryIEs(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePDRCollapsesRepeatedQERIDs(t *testing.T) {
+	pdr, err := parseCreatePDR(ie.NewCreatePDR(
+		ie.NewPDRID(11), ie.NewPrecedence(1),
+		ie.NewPDI(ie.NewSourceInterface(ie.SrcInterfaceAccess)),
+		ie.NewQERID(7), ie.NewQERID(9), ie.NewQERID(7),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pdr.QERIDs) != 2 {
+		t.Fatalf("duplicate QER reference survived parsing: %v", pdr.QERIDs)
+	}
+	for _, id := range []uint32{7, 9} {
+		if _, ok := pdr.QERIDs[id]; !ok {
+			t.Fatalf("QER %d missing after parsing: %v", id, pdr.QERIDs)
+		}
+	}
+}

@@ -7,13 +7,8 @@ import (
 	"github.com/khirono/go-nl"
 )
 
-// FlowQoSDatapath updates PDR-local packet identity. Class selection belongs
-// to the egress BPF program; TCClassID remains zero in the compatible ABI.
-type FlowQoSDatapath interface {
-	SetFlowQoS(pdrID uint16, policyID uint32) error
-	ClearFlowQoS(pdrID uint16) error
-}
-
+// FlowQoS updates PDR-local packet identity. Class selection belongs to the
+// egress BPF program; TCClassID remains zero in the compatible ABI.
 type flowQoSBackend interface {
 	updateFlowQoS(gtp5gnl.OID, nl.Attr) error
 }

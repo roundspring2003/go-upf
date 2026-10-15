@@ -2,6 +2,8 @@ package forwarder
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"unsafe"
 
 	"github.com/khirono/go-nl"
@@ -45,7 +47,7 @@ func compilePDR(seid uint64, p rules.PDRConfig, op OpType) (*pdrPlan, error) {
 	if p.FARID != nil {
 		plan.Attrs = append(plan.Attrs, nl.Attr{Type: gtp5gnl.PDR_FAR_ID, Value: nl.AttrU32(*p.FARID)})
 	}
-	for _, id := range p.QERIDs {
+	for _, id := range slices.Sorted(maps.Keys(p.QERIDs)) {
 		plan.Attrs = append(plan.Attrs, nl.Attr{Type: gtp5gnl.PDR_QER_ID, Value: nl.AttrU32(id)})
 	}
 	for _, id := range p.URRIDs {

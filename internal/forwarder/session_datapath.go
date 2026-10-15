@@ -15,6 +15,8 @@ type SessionDatapath interface {
 	Modify(*rules.RuleChangeSet) (*ApplyResult, error)
 	Cleanup(*rules.RuleChangeSet) (*ApplyResult, error)
 	QueryURR(uint32) ([]report.USAReport, error)
+	SetFlowQoS(pdrID uint16, policyID uint32) error
+	ClearFlowQoS(pdrID uint16) error
 }
 
 // ApplyResult contains protocol-neutral output. Failed transactions return no

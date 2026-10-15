@@ -61,11 +61,13 @@ func (s *Session) Close() ([]report.USAReport, error) {
 		for _, id := range result.Removed.BARs {
 			s.ApplyRemoveBAR(id)
 		}
-		// Cleanup may partially succeed. Only confirmed removals reach QoS,
-		// using a read-through view of the remaining session, without revalidation.
-		s.updateQoSPolicies(&rules.RuleChangeSet{
-			SEID: s.LocalID, RemovePDRs: result.Removed.PDRs, RemoveQERs: result.Removed.QERs,
-		}, &RuleState{sess: s})
+		// Partial cleanup may leave dangling references, so remove only PDRs
+		// confirmed by the datapath without reconciling the remaining rules.
+		if s.qos != nil {
+			if qosErr := s.qos.RemoveConfirmedPDRs(s.LocalID, result.Removed.PDRs); qosErr != nil {
+				s.log.Errorf("QoS egress removal failed: %v", qosErr)
+			}
+		}
 		for _, r := range result.USAReports {
 			r.USARTrigger.Flags |= report.USAR_TRIG_TERMR
 			s.cleanupReports = append(s.cleanupReports, r)

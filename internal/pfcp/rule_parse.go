@@ -99,7 +99,12 @@ func parsePDR(i *ie.IE, create bool) (rules.PDRConfig, error) {
 		case ie.QERID:
 			var v uint32
 			v, err = x.QERID()
-			p.QERIDs = append(p.QERIDs, v)
+			if err == nil {
+				if p.QERIDs == nil {
+					p.QERIDs = make(map[uint32]struct{})
+				}
+				p.QERIDs[v] = struct{}{}
+			}
 		case ie.URRID:
 			var v uint32
 			v, err = x.URRID()

@@ -15,7 +15,7 @@ PFCP rules 成功 → RuleState.Commit
 
 使用同一份 RuleChangeSet 的 AddedPolicies／UpdatedPolicies，不再比較完整 graph。PDR 已刪除時，由 kernel 釋放 binding，UPF 不再對它送 Clear。
 
-支援的 UL/DL policy 下發 PolicyID；Unknown direction 或 AmbiguousQFI 會送 Clear。MissingTarget 不阻止本步驟的 identity marking，因為 class 與出口 BPF 尚未接線；這不是已提供 enforcement 的承諾。MBR-only 更新不改 PolicyID，因此不重送 binding，速率仍由既有 QER 流程處理。
+支援的 UL/DL policy 下發 PolicyID；Unknown direction 會送 Clear。不同 QER 的 QFI 衝突會在 forwarding 執行前拒絕 PFCP 請求。MissingTarget 不阻止本步驟的 identity marking，因為 class 與出口 BPF 尚未接線；這不是已提供 enforcement 的承諾。MBR-only 更新不改 PolicyID，因此不重送 binding，速率仍由既有 QER 流程處理。
 
 ## priority 由出口設定
 

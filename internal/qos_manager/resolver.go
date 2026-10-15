@@ -3,18 +3,18 @@ package qosmanager
 import "github.com/free5gc/go-upf/internal/rules"
 
 // NewEgressResolver maps the supported Access/Core paths to deployment
-// interfaces. Slice/class selection is supplied by the later TC backend.
+// interfaces. TC class IDs are assigned when policies are published.
 // Arguments are captured by value; live remapping is not implemented.
-func NewEgressResolver(n3, n6 string) TargetResolver {
+func NewEgressResolver(n3, n6 rules.Target) TargetResolver {
 	return func(_ rules.PDRKey, direction rules.Direction) (rules.Target, bool) {
-		var egress string
+		var target rules.Target
 		switch direction {
 		case rules.Uplink:
-			egress = n6
+			target = n6
 		case rules.Downlink:
-			egress = n3
+			target = n3
 		}
-		return rules.Target{Egress: egress}, egress != ""
+		return target, target.Egress != ""
 	}
 }
 

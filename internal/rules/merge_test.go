@@ -10,7 +10,7 @@ func rulePtr[T any](v T) *T { return &v }
 
 func TestPDRMergePresenceAndOwnership(t *testing.T) {
 	base := PDRConfig{
-		PDRID: 1, FARID: rulePtr(uint32(2)), QERIDs: []uint32{3}, URRIDs: []uint32{4},
+		PDRID: 1, FARID: rulePtr(uint32(2)), QERIDs: map[uint32]struct{}{3: {}}, URRIDs: []uint32{4},
 		PDI: &PDI{
 			FTEID:       &FTEID{IPv4Address: net.IP{10, 0, 0, 1}},
 			UEIPAddress: &UEIPAddress{IPv6Address: net.IP{1, 2, 3, 4}},
@@ -26,7 +26,8 @@ func TestPDRMergePresenceAndOwnership(t *testing.T) {
 		t.Fatal("absent fields or explicit zero lost")
 	}
 	*merged.FARID = 99
-	merged.QERIDs[0] = 99
+	delete(merged.QERIDs, 3)
+	merged.QERIDs[99] = struct{}{}
 	merged.URRIDs[0] = 99
 	merged.PDI.FTEID.IPv4Address[0] = 99
 	merged.PDI.UEIPAddress.IPv6Address[0] = 99
@@ -40,7 +41,7 @@ func TestPDRMergePresenceAndOwnership(t *testing.T) {
 	filter.FlowDescription.DstPorts[0][0] = 99
 	original := base.PDI.SDFFilters[0]
 	if *base.FARID != 2 ||
-		base.QERIDs[0] != 3 ||
+		!reflect.DeepEqual(base.QERIDs, map[uint32]struct{}{3: {}}) ||
 		base.URRIDs[0] != 4 ||
 		base.PDI.FTEID.IPv4Address[0] != 10 ||
 		base.PDI.UEIPAddress.IPv6Address[0] != 1 ||
@@ -54,7 +55,7 @@ func TestPDRMergePresenceAndOwnership(t *testing.T) {
 		t.Fatal("merge aliases nested base data")
 	}
 	replacement := &PDI{SourceInterface: 1}
-	merged = base.Merge(PDRPatch{PDRID: 1, PDI: replacement, QERIDs: []uint32{}})
+	merged = base.Merge(PDRPatch{PDRID: 1, PDI: replacement, QERIDs: map[uint32]struct{}{}})
 	replacement.SourceInterface = 99
 	if merged.PDI.SourceInterface != 1 ||
 		merged.PDI.FTEID != nil ||

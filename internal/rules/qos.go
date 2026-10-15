@@ -23,10 +23,6 @@ type Target struct {
 	ClassID uint32
 }
 
-type QFISource struct {
-	QERID uint32
-	QFI   uint8
-}
 type Diagnostic struct {
 	Code   string
 	PDR    PDRKey
@@ -37,7 +33,6 @@ type Diagnostic struct {
 const (
 	UnsupportedPath = "UnsupportedPath"
 	MissingTarget   = "MissingTarget"
-	AmbiguousQFI    = "AmbiguousQFI"
 )
 
 type Policy struct {
@@ -45,8 +40,7 @@ type Policy struct {
 	ID          uint32 // manager-local packet policy ID; unrelated to QFI or QER ID
 	Direction   Direction
 	Target      *Target
-	QERIDs      []uint32
 	QFI         *uint8
-	QFISources  []QFISource
+	QFISources  map[uint32]uint8 // QER ID to QFI
 	Diagnostics []Diagnostic
 }
