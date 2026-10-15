@@ -32,7 +32,7 @@ func TestFlowQoSBindingUsesSessionAndPreservesAppliedRules(t *testing.T) {
 	})
 	require.NoError(t, s.SetFlowQoS(11, 17))
 	require.Equal(t, gtp5gnl.OID{42, 11}, d.oid)
-	want, err := gtp5gnl.NewFlowQoSAttr(gtp5gnl.FlowQoS{Version: 1, PolicyID: 17, Flags: 1})
+	want, err := gtp5gnl.NewFlowQoSAttr(gtp5gnl.FlowQoS{Version: gtp5gnl.FLOW_QOS_BINDING_VERSION, PolicyID: 17, Flags: 1})
 	require.NoError(t, err)
 	require.Equal(t, want, d.attr)
 	require.Len(t, s.applied.pdrs[11].Attrs, 3)
@@ -42,7 +42,7 @@ func TestFlowQoSBindingUsesSessionAndPreservesAppliedRules(t *testing.T) {
 	require.Equal(t, before, s.applied.pdrs[11])
 	d.err = nil
 	require.NoError(t, s.ClearFlowQoS(11))
-	clear, err := gtp5gnl.NewFlowQoSAttr(gtp5gnl.FlowQoS{Version: 1})
+	clear, err := gtp5gnl.NewFlowQoSAttr(gtp5gnl.FlowQoS{Version: gtp5gnl.FLOW_QOS_BINDING_VERSION})
 	require.NoError(t, err)
 	require.Equal(t, clear, d.attr)
 	require.Equal(t, clear, s.applied.pdrs[11].Attrs[2])

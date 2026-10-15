@@ -2,7 +2,7 @@
 
 日期：2026-09-15。此步完成原始碼檢查與現有 ABI 編解碼測試，未下發 binding、載入 BPF、調整 sysctl 或修改網路設定。封包到 TC 的保留情況仍需實測。
 
-後續更新：5-2 已加入 [binding 接線與 kernel binding-only 修正](qos_binding.md)。以下保留 5-1 當時的檢查基線；目前 UPF 已固定引用遠端 library 的 ABI commit，classid 決定由出口 BPF 設定。
+後續更新：5-2 已加入 [binding 接線與 kernel binding-only 修正](qos_binding.md)。以下保留 5-1 當時的檢查基線；現行 binding v2 已移除 classid 欄位，gtp5g 不再設定 priority，出口 BPF 負責 class 選擇。
 
 ## 檢查基線
 

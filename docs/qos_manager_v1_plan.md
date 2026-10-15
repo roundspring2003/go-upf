@@ -144,7 +144,7 @@ manager.Apply(changes, view) -> 使用 manager 持有的 resolver 直接更新 p
 
 - 通常 UL pacer 掛在實際 N6 egress，DL 掛在實際 N3 egress；介面由明確設定/解析取得。
 - DL 的 upfgtp egress 發生在 gtp5g 的 PDR lookup/marking 前，不能當作讀取本次 binding 的掛載點。
-- gtp5g 使用 mark 低 24 bits 攜帶 PolicyID；N6/N3 出口 BPF 以 `skb->mark & 0x00ffffff` 查 policy，再設定完整 classid 到 priority。5-2 的 binding TCClassID 固定填 0，出口 BPF 待實作；保留高 8-bit routing 語意。
+- gtp5g 使用 mark 低 24 bits 攜帶 PolicyID；N6/N3 出口 BPF 以 `skb->mark & 0x00ffffff` 查 policy，再設定完整 classid 到 priority。現行 binding v2 只傳 PolicyID，gtp5g 不寫 priority；保留高 8-bit routing 語意。
 - 5-1 原始碼檢查發現：UL IPv4 forwarding 可能覆寫 priority；DL 跨 namespace tunnel 傳送可能清除 mark。出口 BPF 需處理 classid 恢復，跨 namespace 尚未驗收，見 [ABI 與路徑檢查](qos_binding_abi_review.md)。
 - policy map 的一個 entry 可以指向多個 rate QER；不需要為多 QER 擴增 skb mark 位數或修改目前 PDR binding ABI。
 - BPF maps 必須跨適用 egress 共用，否則共享 QER budget 會被拆開。

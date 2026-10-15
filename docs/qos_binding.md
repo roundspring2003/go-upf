@@ -2,6 +2,8 @@
 
 2026-09-15：Set/Clear 控制面接線已完成，尚未安裝新版 module 或進行 kernel netlink／封包聯測。
 
+2026-10-15 更新：FlowQoS binding 改為版本 2，只傳遞 PolicyID；gtp5g 不再設定 `skb->priority`，出口 eBPF 從 policy map 選擇 TC class。shared mark layout 仍為版本 1。
+
 ## 資料流
 
 ```text
@@ -19,9 +21,9 @@ PFCP rules 成功 → RuleState.Commit
 
 ## priority 由出口設定
 
-依本次決定，UL 在 N6 egress BPF、DL 在 N3 egress BPF 依 policy 設定 `skb->priority`。本步只下發 `PolicyID`，ABI 必填的 `TCClassID` 填 0，保留格式相容。
+依本次決定，UL 在 N6 egress BPF、DL 在 N3 egress BPF 依 policy 設定 `skb->priority`。binding 只下發 `PolicyID`；nested attribute 編號 3 保留空號。
 
-現有 module 仍會把 binding 中的 TCClassID 寫入 priority，因此目前會寫 0；未來出口 BPF 負責最後的 classid。PolicyID 位於 mark 低 24 bits。此步不修改 sysctl，也不建立 BPF map、TC class 或 EDT。
+gtp5g 將 PolicyID 寫入 mark 低 24 bits，不改寫 priority。出口 BPF 查 policy map 後設定 classid；這個階段的實作不含 EDT。
 
 ## 既有規則記錄與錯誤
 
@@ -41,7 +43,7 @@ Netlink 成功後，將 FlowQoS attr 合併進既有 sessionDatapath.applied.pdr
 
 ## 開發依賴與驗證
 
-go.mod 固定引用 `github.com/roundspring2003/go-gtp5gnl v0.0.0-20260819073615-3eefbb012a56`，對應已加入 ABI 的 commit `3eefbb012a56`。不需要 sibling checkout；拉取本 branch 後可以直接下載此依賴。Kernel companion branch 為 [gtp5g/feat/qos-manager-egress](https://github.com/roundspring2003/gtp5g/tree/feat/qos-manager-egress)。
+go.mod 固定引用 `github.com/roundspring2003/go-gtp5gnl v0.0.0-20261015110605-76e10aaacc7c`，對應 binding v2 的 commit `76e10aaacc7c`。不需要 sibling checkout；拉取本 branch 後可以直接下載此依賴。Kernel companion branch 為 [gtp5g/feat/qos-manager-egress](https://github.com/roundspring2003/gtp5g/tree/feat/qos-manager-egress)。
 
 已驗證：
 

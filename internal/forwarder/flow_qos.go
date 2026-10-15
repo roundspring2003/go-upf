@@ -7,8 +7,7 @@ import (
 	"github.com/khirono/go-nl"
 )
 
-// FlowQoS updates PDR-local packet identity. Class selection belongs to the
-// egress BPF program; TCClassID remains zero in the compatible ABI.
+// FlowQoS updates PDR-local packet identity. Egress BPF selects the TC class.
 type flowQoSBackend interface {
 	updateFlowQoS(gtp5gnl.OID, nl.Attr) error
 }
@@ -22,13 +21,13 @@ func (s *sessionDatapath) SetFlowQoS(pdrID uint16, policyID uint32) error {
 		return fmt.Errorf("FlowQoS policy ID must be nonzero")
 	}
 	return s.updateFlowQoS(pdrID, gtp5gnl.FlowQoS{
-		Version:  gtp5gnl.SHARED_MARK_ABI_VERSION,
+		Version:  gtp5gnl.FLOW_QOS_BINDING_VERSION,
 		PolicyID: policyID, Flags: gtp5gnl.FLOW_QOS_VALID,
 	})
 }
 
 func (s *sessionDatapath) ClearFlowQoS(pdrID uint16) error {
-	return s.updateFlowQoS(pdrID, gtp5gnl.FlowQoS{Version: gtp5gnl.SHARED_MARK_ABI_VERSION})
+	return s.updateFlowQoS(pdrID, gtp5gnl.FlowQoS{Version: gtp5gnl.FLOW_QOS_BINDING_VERSION})
 }
 
 func (s *sessionDatapath) updateFlowQoS(pdrID uint16, binding gtp5gnl.FlowQoS) error {
