@@ -50,12 +50,17 @@ func TestQoSEgressPublication(t *testing.T) {
 	b.events = nil
 	b.removed = nil
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(6)))
-	require.Equal(t, []string{"map", "binding"}, b.events)
+	require.Equal(t, []string{"binding"}, b.events, "QFI does not change TC class or map")
 	b.events = nil
 	b.fail = true
-	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(8)))
+	modifyQoSSession(t, d, transport, s, ie.NewUpdatePDR(ie.NewPDRID(11),
+		ie.NewPDI(ie.NewSourceInterface(ie.SrcInterfaceCore))))
 	require.Equal(t, []string{"map"}, b.events, "do not enable a binding after map publication failed")
 	b.fail = false
+	b.events = nil
+	modifyQoSSession(t, d, transport, s, ie.NewUpdatePDR(ie.NewPDRID(11),
+		ie.NewPDI(ie.NewSourceInterface(ie.SrcInterfaceCore))))
+	require.Equal(t, []string{"map", "binding"}, b.events, "failed TC publication must be retried")
 	b.events = nil
 	rejectQoSModification(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(5)))
 	require.Empty(t, b.events, "rejected QFI change must not touch TC or bindings")

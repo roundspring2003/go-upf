@@ -24,8 +24,10 @@ func TestManagerReconcilesFinalPDRState(t *testing.T) {
 		t.Fatal(out)
 	}
 	before := m.Policies(10)
+	v.affected = map[uint16]bool{11: true}
 	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}}
-	if out = apply(t, m, 10, v); !out.Empty() || !reflect.DeepEqual(before, m.Policies(10)) {
+	if out = apply(t, m, 10, v); !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 11}}) ||
+		!reflect.DeepEqual(before, m.Policies(10)) {
 		t.Fatal("QER reference without QFI changed policy", out)
 	}
 	v.pdrs[11].PDI.SourceInterface = 1
@@ -35,8 +37,8 @@ func TestManagerReconcilesFinalPDRState(t *testing.T) {
 		!reflect.DeepEqual(before[1], after[1]) || before[0].ID != after[0].ID || after[0].Direction != rules.Downlink {
 		t.Fatal(out, after)
 	}
-	if out = apply(t, m, 10, v); !out.Empty() {
-		t.Fatal("unchanged final state rewrote a policy", out)
+	if out = apply(t, m, 10, v); !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 11}}) {
+		t.Fatal("affected PDR was not retained for binding retry", out)
 	}
 	delete(v.pdrs, 11)
 	v.removed = []uint16{11}
@@ -74,9 +76,21 @@ func TestManagerQERReferenceWithoutQFIDoesNotRewriteTC(t *testing.T) {
 	v.qers[10] = &rules.QERConfig{QERID: 10}
 	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}, 10: {}}
 	v.qerReads = 0
-	if out := apply(t, m, 10, v); !out.Empty() || len(egress.puts) != 2 || v.qerReads != 2 ||
+	plan, err := m.Prepare(10, v)
+	if err != nil || len(plan.policies) != 1 {
+		t.Fatal("affected QoS policy was not prepared", err, plan)
+	}
+	out, err := m.ApplyPrepared(plan)
+	if err != nil || !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 11}}) ||
+		len(egress.puts) != 2 || v.qerReads != 2 ||
 		!reflect.DeepEqual(before, m.Policies(10)) {
-		t.Fatal("QER reference without QFI rewrote TC policy", out, egress, v.qerReads)
+		t.Fatal("QER reference without QFI rewrote TC policy", err, out, egress, v.qerReads)
+	}
+	v.qers[7].QFI = ptr(uint8(6))
+	apply(t, m, 10, v)
+	p, _ := m.Policy(rules.PDRKey{SEID: 10, PDRID: 11})
+	if p.QFI == nil || *p.QFI != 6 || len(egress.puts) != 2 {
+		t.Fatal("QFI update did not refresh manager memory or rewrote unchanged TC inputs", p, egress)
 	}
 }
 
@@ -114,7 +128,7 @@ func TestManagerQFIChangesUseFinalReferences(t *testing.T) {
 	v.pdrs[13] = &rules.PDRConfig{PDRID: 13, PDI: &rules.PDI{SourceInterface: 1}, QERIDs: map[uint32]struct{}{9: {}}}
 	*v.qers[9].QFI = 6
 	out := apply(t, m, 10, v)
-	if !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 13}}) ||
+	if !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 12}, {SEID: 10, PDRID: 13}}) ||
 		!reflect.DeepEqual(out.RemovedPolicies, []rules.PDRKey{{SEID: 10, PDRID: 11}}) {
 		t.Fatal(out)
 	}
@@ -161,9 +175,6 @@ func TestManagerPrepareDoesNotPublishAndUsesComputedPolicyOnce(t *testing.T) {
 	out, err := m.ApplyPrepared(plan)
 	if err != nil || len(out.SetBindings) != 2 || len(egress.puts) != 2 || v.qerReads != 4 {
 		t.Fatal("ApplyPrepared reread QERs or failed to publish", err, out, egress, v.qerReads)
-	}
-	if _, err := m.ApplyPrepared(plan); err == nil {
-		t.Fatal("prepared update was applied twice")
 	}
 }
 
@@ -289,6 +300,15 @@ func TestManagerApplyPublishesTCAndReportsBindingOutcomes(t *testing.T) {
 	p11, _ = m.Policy(key11)
 	if p11.Target.ClassID != 0 || !hasDiagnostic(p11, rules.MissingTarget) {
 		t.Fatal("failed publication retained a new class assignment", p11)
+	}
+	egress.failPutID = 0
+	out = apply(t, m, 10, v)
+	if !reflect.DeepEqual(egress.puts, []uint32{1, 2, 1, 2, 1}) || len(out.SetBindings) != 2 {
+		t.Fatal("failed TC publication was not retried", out, egress)
+	}
+	p11, _ = m.Policy(key11)
+	if p11.Target.ClassID == 0 || hasDiagnostic(p11, rules.MissingTarget) {
+		t.Fatal("retried TC publication did not record its class", p11)
 	}
 
 	delete(v.pdrs, 11)

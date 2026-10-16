@@ -73,10 +73,9 @@ type Prepared struct {
 	manager  *Manager
 	policies []rules.Policy
 	removed  []rules.PDRKey
-	used     bool
 }
 
-// Prepare derives affected policies without changing manager memory or TC.
+// Prepare derives policies for affected PDRs without changing manager memory or TC.
 // Each candidate PDR's QER IDs are traversed once. Conflicting QFI values
 // reject the whole request before forwarding rules are applied.
 func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
@@ -134,11 +133,14 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 			if found && target.Egress != "" {
 				p.Target = &target
 			}
-			if p.Target == nil || target.ClassID == 0 {
+			// With an egress backend, only its successful publication supplies
+			// a usable class ID; a resolver value is not confirmation.
+			if p.Target == nil || m.egress != nil || target.ClassID == 0 {
 				addDiagnostic(rules.MissingTarget, "egress or installed TC class is unavailable")
 			}
 		}
-		p.ID = m.policies[key].ID
+		old := m.policies[key]
+		p.ID = old.ID
 		if p.ID == 0 {
 			needed++
 		}
@@ -169,13 +171,12 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 }
 
 // ApplyPrepared publishes a previously validated calculation after forwarding
-// succeeds. TC successes are returned as binding updates; TC failures are
-// omitted from those updates and returned as errors.
+// succeeds. Policies with a confirmed TC class are returned as binding
+// updates; TC failures are omitted from those updates and returned as errors.
 func (m *Manager) ApplyPrepared(plan *Prepared) (Changes, error) {
-	if plan == nil || plan.manager != m || plan.used {
-		return Changes{}, fmt.Errorf("invalid or already applied QoS preparation")
+	if plan == nil || plan.manager != m {
+		return Changes{}, fmt.Errorf("invalid QoS preparation")
 	}
-	plan.used = true
 	out := Changes{RemovedPolicies: plan.removed}
 	var errs []error
 	for _, key := range out.RemovedPolicies {
@@ -188,23 +189,30 @@ func (m *Manager) ApplyPrepared(plan *Prepared) (Changes, error) {
 		}
 	}
 	for _, p := range plan.policies {
-		old, exists := m.policies[p.Key]
+		old := m.policies[p.Key]
 		valid := bindablePolicy(p)
-		// A changed PDR can still yield the same QoS policy.
-		if exists && samePolicy(old, p) {
-			continue
-		}
 		if p.ID == 0 {
 			p.ID = uint32(m.nextPolicy)
 			m.nextPolicy++
 		}
+		// The resolver's class is not evidence of a successful TC publication.
+		if m.egress != nil && p.Target != nil {
+			p.Target.ClassID = 0
+		}
 		m.policies[p.Key] = p
 		if m.egress != nil {
 			if valid {
-				classID, err := m.egress.PutQoSPolicy(p)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("publish TC policy %d for PDR %d: %w", p.ID, p.Key.PDRID, err))
-					continue
+				var classID uint32
+				if p.Target != nil && old.ID == p.ID && old.Target != nil &&
+					old.Target.Egress == p.Target.Egress && old.Target.ClassID != 0 {
+					classID = old.Target.ClassID
+				} else {
+					var err error
+					classID, err = m.egress.PutQoSPolicy(p)
+					if err != nil {
+						errs = append(errs, fmt.Errorf("publish TC policy %d for PDR %d: %w", p.ID, p.Key.PDRID, err))
+						continue
+					}
 				}
 				if classID == 0 || p.Target == nil {
 					errs = append(errs, fmt.Errorf("TC policy %d for PDR %d returned no class", p.ID, p.Key.PDRID))
@@ -237,35 +245,6 @@ func (m *Manager) Apply(seid uint64, view RuleView) (Changes, error) {
 		return Changes{}, err
 	}
 	return m.ApplyPrepared(plan)
-}
-
-func samePolicy(a, b rules.Policy) bool {
-	if a.Key != b.Key || a.ID != b.ID || a.Direction != b.Direction ||
-		!maps.Equal(a.QFISources, b.QFISources) ||
-		!samePtr(a.QFI, b.QFI) {
-		return false
-	}
-	if (a.Target == nil) != (b.Target == nil) {
-		return false
-	}
-	if a.Target != nil && (a.Target.Egress != b.Target.Egress || a.Target.Slice != b.Target.Slice) {
-		return false
-	}
-	// ClassID is assigned by TC after publication; MissingTarget is cleared then.
-	withoutClassDiagnostic := func(ds []rules.Diagnostic) []rules.Diagnostic {
-		return slices.DeleteFunc(slices.Clone(ds), func(d rules.Diagnostic) bool { return d.Code == rules.MissingTarget })
-	}
-	return slices.EqualFunc(withoutClassDiagnostic(a.Diagnostics), withoutClassDiagnostic(b.Diagnostics),
-		func(x, y rules.Diagnostic) bool {
-			return x.Code == y.Code && x.PDR == y.PDR && x.Detail == y.Detail && samePtr(x.QERID, y.QERID)
-		})
-}
-
-func samePtr[T comparable](a, b *T) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
 
 func bindablePolicy(p rules.Policy) bool {

@@ -165,3 +165,25 @@ func TestRuleStateRangesQoSCandidates(t *testing.T) {
 		})
 	}
 }
+
+func TestRuleStateSkipsCandidateScanWhenQFIIsUnchanged(t *testing.T) {
+	sess := newRuleStateTestSession()
+	qfi := uint8(5)
+	sess.QERIDs[7].QFI = &qfi
+	state, err := sess.ValidateRuleState(&rules.RuleChangeSet{
+		UpdateQERs: []rules.QERPatch{{QERID: 7, QFI: statePtr(uint8(5))}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.QFIUpdated(7) {
+		t.Fatal("unchanged QFI was marked as updated")
+	}
+	visited := 0
+	if err := state.RangeQoSCandidates(func(uint16, *rules.PDRConfig, bool) error {
+		visited++
+		return nil
+	}); err != nil || visited != 0 {
+		t.Fatal("unchanged QFI scanned PDR candidates", err, visited)
+	}
+}

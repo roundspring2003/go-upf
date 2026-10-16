@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/free5gc/go-gtp5gnl"
 	"github.com/khirono/go-nl"
@@ -42,6 +43,21 @@ func (s *sessionDatapath) updateFlowQoS(pdrID uint16, binding gtp5gnl.FlowQoS) e
 	backend, ok := s.backend.(flowQoSBackend)
 	if !ok {
 		return fmt.Errorf("datapath does not support FlowQoS binding")
+	}
+	// Applied attributes record only confirmed updates. Skip the netlink call
+	// when this exact binding is already present, while retrying failed updates.
+	hasBinding := false
+	for _, applied := range current.Attrs {
+		if applied.Type != gtp5gnl.PDR_FLOW_QOS {
+			continue
+		}
+		hasBinding = true
+		if reflect.DeepEqual(applied.Value, attr.Value) {
+			return nil
+		}
+	}
+	if binding.Flags == 0 && !hasBinding {
+		return nil
 	}
 	oid := gtp5gnl.OID{s.localSEID, uint64(pdrID)}
 	if err := backend.updateFlowQoS(oid, attr); err != nil {

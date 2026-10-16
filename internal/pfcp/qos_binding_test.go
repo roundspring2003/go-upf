@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/free5gc/go-upf/internal/forwarder"
+	"github.com/free5gc/go-upf/internal/rules"
 	"github.com/stretchr/testify/require"
 	"github.com/wmnsk/go-pfcp/ie"
 )
@@ -38,12 +39,19 @@ func TestQoSBindingFollowsPolicyChanges(t *testing.T) {
 	require.Equal(t, map[uint16]uint32{11: initial[0].ID}, b.set)
 	rejectQoSModification(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(5)))
 	require.Empty(t, b.cleared, "rejected QFI change must preserve bindings")
+	b.set = make(map[uint16]uint32)
 	b.err = errors.New("binding rejected")
-	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(8), ie.NewQFI(10)))
+	modifyQoSSession(t, d, transport, s, ie.NewCreatePDR(ie.NewPDRID(13), ie.NewPrecedence(100),
+		ie.NewPDI(ie.NewSourceInterface(ie.SrcInterfaceAccess)), ie.NewFARID(1), ie.NewQERID(8)))
 	require.Contains(t, hook.LastEntry().Message, "FlowQoS binding update failed")
-	require.Contains(t, s.PDRIDs, uint16(12))
+	require.Contains(t, s.PDRIDs, uint16(13))
 	b.err = nil
 	b.cleared = nil
+	b.set = make(map[uint16]uint32)
+	modifyQoSSession(t, d, transport, s, ie.NewUpdatePDR(ie.NewPDRID(13), ie.NewQERID(8)))
+	p, ok := s.qos.Policy(rules.PDRKey{SEID: s.LocalID, PDRID: 13})
+	require.True(t, ok)
+	require.Equal(t, map[uint16]uint32{13: p.ID}, b.set, "failed binding must be retried on the next candidate update")
 	b.set = make(map[uint16]uint32)
 	modifyQoSSession(t, d, transport, s, ie.NewRemovePDR(ie.NewPDRID(11)))
 	require.Empty(t, b.cleared, "deleted PDR bindings are freed by kernel PDR deletion")

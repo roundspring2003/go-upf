@@ -160,13 +160,13 @@ func (state *RuleState) buildOverlays(changes *rules.RuleChangeSet) {
 		state.qerOverrides[c.QERID] = &n
 	}
 	for _, p := range changes.UpdateQERs {
-		if p.QFI != nil {
+		c, _ := state.QER(p.QERID)
+		if p.QFI != nil && (c.QFI == nil || *p.QFI != *c.QFI) {
 			if state.qfiUpdatedQERs == nil {
 				state.qfiUpdatedQERs = make(map[uint32]struct{})
 			}
 			state.qfiUpdatedQERs[p.QERID] = struct{}{}
 		}
-		c, _ := state.QER(p.QERID)
 		n := c.Merge(p)
 		state.qerOverrides[p.QERID] = &n
 	}
