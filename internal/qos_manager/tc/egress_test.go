@@ -23,13 +23,13 @@ func TestQoSEgressKernel(t *testing.T) {
 	defer objects.Close()
 	lo, err := net.InterfaceByName("lo")
 	require.NoError(t, err)
-	e := &TCEgress{objects: objects, interfaces: map[string]uint32{"test": uint32(lo.Index)},
-		classes: &classManager{run: func(...string) error { return nil }, active: make(map[uint32]classAssignment),
-			pending: make(map[uint32]classAssignment), used: map[string]map[uint16]bool{"test": {defaultMinor: true}}}}
+	classes, err := openClasses([]string{"test"}, func(...string) error { return nil })
+	require.NoError(t, err)
+	e := &TCEgress{objects: objects, interfaces: map[string]uint32{"test": uint32(lo.Index)}, classes: classes}
 	p := rules.Policy{ID: 7, Target: &rules.Target{Egress: "test"}}
 	classID, err := e.PutQoSPolicy(p)
 	require.NoError(t, err)
-	require.Equal(t, uint32(0xe0010002), classID)
+	require.Equal(t, uint32(0xe0010010), classID)
 	run := func(mark, priority uint32) uint32 {
 		t.Helper()
 		ctx := make([]byte, 192)

@@ -60,8 +60,8 @@ func TestQoSManagerUsesExistingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out := apply(update); !out.Empty() {
-		t.Fatal("MBR update rewrote policies", out)
+	if out := apply(update); len(out.SetBindings) != 2 {
+		t.Fatal("MBR update did not refresh its policies", out)
 	}
 	got := sess.QERIDs[7]
 	if got.MBR.UplinkBps != 70000000 || got.GBR.DownlinkBps != 5000000 || *got.QFI != 5 ||
@@ -115,7 +115,7 @@ func TestRuleStateRangesQoSCandidates(t *testing.T) {
 	}{
 		{name: "rate-only QER", changes: rules.RuleChangeSet{
 			UpdateQERs: []rules.QERPatch{{QERID: 7, MBR: &rules.DirectionalBitRate{UplinkBps: 1000}}},
-		}},
+		}, want: []uint16{11, 12}},
 		{name: "PDR update", changes: rules.RuleChangeSet{
 			UpdatePDRs: []rules.PDRPatch{{PDRID: 11, QERIDs: map[uint32]struct{}{7: {}}}},
 		}, want: []uint16{11}, changed: []uint16{11}},
@@ -176,7 +176,7 @@ func TestRuleStateSkipsCandidateScanWhenQFIIsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.QFIUpdated(7) {
+	if state.QoSUpdated(7) {
 		t.Fatal("unchanged QFI was marked as updated")
 	}
 	visited := 0

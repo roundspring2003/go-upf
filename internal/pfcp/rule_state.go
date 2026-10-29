@@ -24,7 +24,7 @@ type RuleState struct {
 	removedFARs    map[uint32]struct{}
 	qerOverrides   map[uint32]*rules.QERConfig
 	removedQERs    map[uint32]struct{}
-	qfiUpdatedQERs map[uint32]struct{}
+	qosUpdatedQERs map[uint32]struct{}
 	urrOverrides   map[uint32]*rules.URRConfig
 	removedURRs    map[uint32]struct{}
 	barOverrides   map[uint8]*rules.BARConfig
@@ -161,11 +161,13 @@ func (state *RuleState) buildOverlays(changes *rules.RuleChangeSet) {
 	}
 	for _, p := range changes.UpdateQERs {
 		c, _ := state.QER(p.QERID)
-		if p.QFI != nil && (c.QFI == nil || *p.QFI != *c.QFI) {
-			if state.qfiUpdatedQERs == nil {
-				state.qfiUpdatedQERs = make(map[uint32]struct{})
+		if p.QFI != nil && (c.QFI == nil || *p.QFI != *c.QFI) ||
+			p.MBR != nil && (c.MBR == nil || *p.MBR != *c.MBR) ||
+			p.GBR != nil && (c.GBR == nil || *p.GBR != *c.GBR) {
+			if state.qosUpdatedQERs == nil {
+				state.qosUpdatedQERs = make(map[uint32]struct{})
 			}
-			state.qfiUpdatedQERs[p.QERID] = struct{}{}
+			state.qosUpdatedQERs[p.QERID] = struct{}{}
 		}
 		n := c.Merge(p)
 		state.qerOverrides[p.QERID] = &n
@@ -253,14 +255,14 @@ func (state *RuleState) BAR(id uint8) (*rules.BARConfig, bool) {
 	return c, ok
 }
 
-// QFIUpdated reports whether this request changed the QFI of a QER.
-func (state *RuleState) QFIUpdated(id uint32) bool {
-	_, updated := state.qfiUpdatedQERs[id]
+// QoSUpdated reports a changed QFI, MBR or GBR. Gate handling remains in gtp5g.
+func (state *RuleState) QoSUpdated(id uint32) bool {
+	_, updated := state.qosUpdatedQERs[id]
 	return updated
 }
 
-// RangeQoSCandidates visits changed PDRs. A QFI update also makes every
-// unchanged PDR a candidate; the manager checks references while deriving QFI.
+// RangeQoSCandidates visits changed PDRs. A QFI/MBR/GBR update also makes
+// unchanged PDRs candidates; the manager checks references in its one QER pass.
 // Each PDR is visited at most once. The last argument marks changed PDRs.
 func (state *RuleState) RangeQoSCandidates(
 	visit func(id uint16, info *rules.PDRConfig, changed bool) error,
@@ -273,7 +275,7 @@ func (state *RuleState) RangeQoSCandidates(
 			return err
 		}
 	}
-	if len(state.qfiUpdatedQERs) == 0 {
+	if len(state.qosUpdatedQERs) == 0 {
 		return nil
 	}
 	for id, info := range state.sess.PDRIDs {

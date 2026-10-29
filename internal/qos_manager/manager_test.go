@@ -25,7 +25,7 @@ func TestManagerReconcilesFinalPDRState(t *testing.T) {
 	}
 	before := m.Policies(10)
 	v.affected = map[uint16]bool{11: true}
-	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}}
+	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}, 9: {}}
 	if out = apply(t, m, 10, v); !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 11}}) ||
 		!reflect.DeepEqual(before, m.Policies(10)) {
 		t.Fatal("QER reference without QFI changed policy", out)
@@ -74,7 +74,7 @@ func TestManagerQERReferenceWithoutQFIDoesNotRewriteTC(t *testing.T) {
 	before := m.Policies(10)
 	v.affected = map[uint16]bool{11: true}
 	v.qers[10] = &rules.QERConfig{QERID: 10}
-	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}, 10: {}}
+	v.pdrs[11].QERIDs = map[uint32]struct{}{7: {}, 9: {}, 10: {}}
 	v.qerReads = 0
 	plan, err := m.Prepare(10, v)
 	if err != nil || len(plan.policies) != 1 {
@@ -82,35 +82,42 @@ func TestManagerQERReferenceWithoutQFIDoesNotRewriteTC(t *testing.T) {
 	}
 	out, err := m.ApplyPrepared(plan)
 	if err != nil || !reflect.DeepEqual(out.SetBindings, []rules.PDRKey{{SEID: 10, PDRID: 11}}) ||
-		len(egress.puts) != 2 || v.qerReads != 2 ||
+		len(egress.puts) != 2 || v.qerReads != 3 ||
 		!reflect.DeepEqual(before, m.Policies(10)) {
 		t.Fatal("QER reference without QFI rewrote TC policy", err, out, egress, v.qerReads)
 	}
 	v.qers[7].QFI = ptr(uint8(6))
 	apply(t, m, 10, v)
 	p, _ := m.Policy(rules.PDRKey{SEID: 10, PDRID: 11})
-	if p.QFI == nil || *p.QFI != 6 || len(egress.puts) != 2 {
+	if p.QFI == nil || *p.QFI != 6 || len(egress.puts) != 3 {
 		t.Fatal("QFI update did not refresh manager memory or rewrote unchanged TC inputs", p, egress)
 	}
 }
 
-func TestManagerRateAndGateChangesDoNotRebuildPolicies(t *testing.T) {
+func TestManagerRateUpdatesRefreshPoliciesButGateOnlyDoesNot(t *testing.T) {
 	egress := &managerEgressRecorder{}
 	m := NewManager(NewEgressResolver(rules.Target{Egress: "n3"}, rules.Target{Egress: "n6"}), egress)
 	v := fixture()
 	apply(t, m, 10, v)
 	before := m.Policies(10)
 	v.rangeCalls, v.qerReads = 0, 0
-	v.affected = map[uint16]bool{}
+	v.affected = map[uint16]bool{11: false, 12: false}
+	v.qosUpdated = map[uint32]bool{9: true, 7: true}
 	v.qers[9].MBR.UplinkBps = 70000000
 	v.qers[7].GBR = &rules.DirectionalBitRate{UplinkBps: 1000}
 	v.qers[9].GateStatus = &rules.GateStatus{Uplink: 1}
-	if out := apply(t, m, 10, v); !out.Empty() {
+	if out := apply(t, m, 10, v); len(out.SetBindings) != 2 {
 		t.Fatal(out)
 	}
-	if v.rangeCalls != 1 || v.qerReads != 0 || len(egress.puts) != 2 ||
-		!reflect.DeepEqual(before, m.Policies(10)) {
-		t.Fatal("rate-only change read QERs or rewrote TC or binding")
+	if v.rangeCalls != 1 || v.qerReads != 4 || len(egress.puts) != 4 || reflect.DeepEqual(before, m.Policies(10)) {
+		t.Fatal("rate change was not propagated once", v.qerReads, egress)
+	}
+	v.affected = map[uint16]bool{}
+	v.qosUpdated = nil
+	v.qerReads = 0
+	v.qers[9].GateStatus.Uplink = 0
+	if out := apply(t, m, 10, v); !out.Empty() || v.qerReads != 0 || len(egress.puts) != 4 {
+		t.Fatal("gate-only change rebuilt QoS", out)
 	}
 }
 

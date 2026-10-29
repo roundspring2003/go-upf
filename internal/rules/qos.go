@@ -42,5 +42,34 @@ type Policy struct {
 	Target      *Target
 	QFI         *uint8
 	QFISources  map[uint32]uint8 // QER ID to QFI
+	Rates       []QoSRate        // Directional QER constraints, collected with QFI in one traversal.
 	Diagnostics []Diagnostic
+}
+
+// QoSRate keeps the QER identity: different PDRs referencing this QER must
+// share its rate budget within the session and direction.
+type QoSRate struct {
+	QERID  uint32
+	MBRBps uint64
+	GBRBps uint64
+}
+
+func (p Policy) GBR() uint64 {
+	var rate uint64
+	for _, r := range p.Rates {
+		if r.GBRBps > rate {
+			rate = r.GBRBps
+		}
+	}
+	return rate
+}
+
+func (p Policy) MBR() uint64 {
+	var rate uint64
+	for _, r := range p.Rates {
+		if r.MBRBps != 0 && (rate == 0 || r.MBRBps < rate) {
+			rate = r.MBRBps
+		}
+	}
+	return rate
 }

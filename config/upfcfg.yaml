@@ -22,10 +22,19 @@ dnnList:
     cidr: 10.61.0.0/16
 
 # Explicit TC attachment targets; no route or NAT changes are made by this block.
-# UL/DL class selection and EDT still require the subsequent BPF/TC backend.
 qos:
+  # Choose per-flow-htb, shared-htb, or shared-htb-edt. Restart between runs.
+  mode: per-flow-htb
   n3Egress: enp0s8 # Host-only link to the UE/gNB VM (192.168.56.104)
   n6Egress: enp0s9 # Bridged link to the external DN/iperf server
+  # Common defaults. For each experiment, testtools/qos-experiment generates
+  # fixed egressBudgets: UL on N6, DL on N3, with GBR=sum of that round's flows.
+  # All three modes receive the same per-egress budgets; restart between rounds.
+  capacityBps: 30000000
+  gbrBps: 20000000
+  beBps: 9000000
+  fallbackBps: 1000000
+  horizonMs: 1000
 
 logger:
   enable: true

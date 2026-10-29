@@ -117,7 +117,10 @@ func TestQoSRequestLifecycle(t *testing.T) {
 	}
 
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewMBR(70000, 40000)))
-	require.Equal(t, initial, s.qos.Policies(s.LocalID), "rate-only updates do not rebuild policies")
+	for i := range initial {
+		initial[i].Rates[0].MBRBps = 70000000
+	}
+	require.Equal(t, initial, s.qos.Policies(s.LocalID), "rate updates refresh policies with stable packet IDs")
 	require.Contains(t, lastAppliedRule(t, hook, "QER"), "ID=9")
 	require.Contains(t, lastAppliedRule(t, hook, "QER"), "70000000")
 	require.Equal(t, uint64(70000000), s.QERIDs[9].MBR.UplinkBps)

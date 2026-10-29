@@ -34,7 +34,8 @@ func TestQoSBindingFollowsPolicyChanges(t *testing.T) {
 	s.datapath = b
 	initial := s.qos.Policies(s.LocalID)
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewMBR(70000, 40000)))
-	require.Empty(t, b.set, "rate updates retain packet identity")
+	require.Equal(t, map[uint16]uint32{11: initial[0].ID, 12: initial[1].ID}, b.set, "rate updates retain packet identity")
+	b.set = make(map[uint16]uint32)
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(6)))
 	require.Equal(t, map[uint16]uint32{11: initial[0].ID}, b.set)
 	rejectQoSModification(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(9), ie.NewQFI(5)))

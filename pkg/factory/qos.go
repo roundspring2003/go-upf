@@ -15,6 +15,12 @@ func validateQoSEgress(q *QoS, lookup func(string) (*net.Interface, error)) erro
 	if q == nil {
 		return nil
 	}
+	if _, err := q.Config.Normalize(); err != nil {
+		return err
+	}
+	if err := q.Config.ValidateEgresses([]string{q.N3Egress, q.N6Egress}); err != nil {
+		return err
+	}
 	for _, name := range []string{q.N3Egress, q.N6Egress} {
 		if name == "" {
 			return fmt.Errorf("qos.n3Egress and qos.n6Egress must both be configured")

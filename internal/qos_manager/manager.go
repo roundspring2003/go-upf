@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	qosconfig "github.com/free5gc/go-upf/internal/qos_manager/config"
 	"github.com/free5gc/go-upf/internal/qos_manager/tc"
 	"github.com/free5gc/go-upf/internal/rules"
 )
@@ -46,8 +47,8 @@ func NewManager(target TargetResolver, egress ...EgressDatapath) *Manager {
 }
 
 // OpenManager owns the TC resources and the policy resolver for this UPF.
-func OpenManager(n3, n6 string) (*Manager, error) {
-	egress, err := tc.OpenTCEgress([]string{n3, n6})
+func OpenManager(n3, n6 string, options ...qosconfig.Config) (*Manager, error) {
+	egress, err := tc.OpenTCEgress([]string{n3, n6}, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,15 +91,25 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 			return fmt.Errorf("validated rule view lost PDR %d", id)
 		}
 		key := rules.PDRKey{SEID: seid, PDRID: id}
-		p := rules.Policy{Key: key}
+		p := rules.Policy{Key: key, Direction: resolveDirection(pdr)}
 		conflictingQFI := false
 		for qerID := range pdr.QERIDs {
-			if view.QFIUpdated(qerID) {
+			if view.QoSUpdated(qerID) {
 				changed = true
 			}
 			qer, ok := view.QER(qerID)
 			if !ok || qer == nil {
 				return fmt.Errorf("validated rule view lost QER %d referenced by PDR %d", qerID, id)
+			}
+			rate := rules.QoSRate{QERID: qerID}
+			if qer.MBR != nil {
+				rate.MBRBps = directionalRate(qer.MBR, p.Direction)
+			}
+			if qer.GBR != nil {
+				rate.GBRBps = directionalRate(qer.GBR, p.Direction)
+			}
+			if rate.MBRBps != 0 || rate.GBRBps != 0 {
+				p.Rates = append(p.Rates, rate)
 			}
 			if qer.QFI != nil {
 				if p.QFISources == nil {
@@ -118,7 +129,10 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 		if conflictingQFI {
 			return &AmbiguousQFIError{PDRID: id}
 		}
-		p.Direction = resolveDirection(pdr)
+		slices.SortFunc(p.Rates, func(a, b rules.QoSRate) int { return cmp.Compare(a.QERID, b.QERID) })
+		if p.MBR() != 0 && p.GBR() > p.MBR() {
+			return fmt.Errorf("PDR %d: GBR exceeds applicable MBR", id)
+		}
 		addDiagnostic := func(code, detail string) {
 			p.Diagnostics = append(p.Diagnostics, rules.Diagnostic{Code: code, PDR: key, Detail: detail})
 		}
@@ -160,6 +174,11 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if validator, ok := m.egress.(interface{ ValidateQoSPolicies([]rules.Policy) error }); ok {
+		if err := validator.ValidateQoSPolicies(plan.policies); err != nil {
+			return nil, err
+		}
 	}
 	if needed > 0 && m.nextPolicy+needed-1 > uint64(MaxPolicyID) {
 		return nil, ErrIDExhausted
@@ -204,7 +223,8 @@ func (m *Manager) ApplyPrepared(plan *Prepared) (Changes, error) {
 			if valid {
 				var classID uint32
 				if p.Target != nil && old.ID == p.ID && old.Target != nil &&
-					old.Target.Egress == p.Target.Egress && old.Target.ClassID != 0 {
+					old.Target.Egress == p.Target.Egress && old.Target.Slice == p.Target.Slice && old.Target.ClassID != 0 &&
+					slices.Equal(old.Rates, p.Rates) && sameQFI(old.QFI, p.QFI) && old.Direction == p.Direction {
 					classID = old.Target.ClassID
 				} else {
 					var err error
@@ -304,6 +324,7 @@ func (m *Manager) Policies(seid uint64) []rules.Policy {
 }
 
 func copyPolicy(p rules.Policy) rules.Policy {
+	p.Rates = slices.Clone(p.Rates)
 	p.QFISources = maps.Clone(p.QFISources)
 	p.Diagnostics = slices.Clone(p.Diagnostics)
 	for i := range p.Diagnostics {
@@ -312,4 +333,18 @@ func copyPolicy(p rules.Policy) rules.Policy {
 	p.QFI = copyPtr(p.QFI)
 	p.Target = copyPtr(p.Target)
 	return p
+}
+
+func directionalRate(rate *rules.DirectionalBitRate, direction rules.Direction) uint64 {
+	if direction == rules.Uplink {
+		return rate.UplinkBps
+	}
+	if direction == rules.Downlink {
+		return rate.DownlinkBps
+	}
+	return 0
+}
+
+func sameQFI(a, b *uint8) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }

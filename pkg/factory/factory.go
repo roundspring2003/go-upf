@@ -50,6 +50,14 @@ func ReadConfig(cfgPath string) (*Config, error) {
 	if err != nil {
 		return nil, errors.Errorf("cfg.Pfcp.NodeID[%s] can't be resolved", cfg.Pfcp.NodeID)
 	}
+	if cfg.QoS != nil {
+		if _, err := cfg.QoS.Config.Normalize(); err != nil {
+			return nil, err
+		}
+		if err := cfg.QoS.Config.ValidateEgresses([]string{cfg.QoS.N3Egress, cfg.QoS.N6Egress}); err != nil {
+			return nil, err
+		}
+	}
 
 	cfg.Print()
 	return cfg, nil

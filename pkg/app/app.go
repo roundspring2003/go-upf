@@ -82,11 +82,16 @@ func (u *UpfApp) Run() error {
 		return err
 	}
 	if u.cfg.QoS != nil {
-		u.qos, err = qosmanager.OpenManager(u.cfg.QoS.N3Egress, u.cfg.QoS.N6Egress)
+		u.qos, err = qosmanager.OpenManager(u.cfg.QoS.N3Egress, u.cfg.QoS.N6Egress, u.cfg.QoS.Config)
 		if err != nil {
 			cancel()
 			u.wg.Wait()
 			return err
+		}
+		cfg, _ := u.cfg.QoS.Config.Normalize()
+		for _, iface := range []string{u.cfg.QoS.N3Egress, u.cfg.QoS.N6Egress} {
+			b := cfg.BudgetFor(iface)
+			logger.MainLog.Infof("QoS mode=%s egress=%s capacity=%d bit/s GBR=%d BE=%d fallback=%d horizon=%dms", cfg.Mode, iface, cfg.CapacityBps, b.GBRBps, b.BEBps, b.FallbackBps, cfg.HorizonMS)
 		}
 	}
 

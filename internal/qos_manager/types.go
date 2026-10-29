@@ -12,13 +12,13 @@ type EgressDatapath interface {
 }
 
 // RuleView exposes the validated final QER values and PDR candidates for QoS.
-// When QFI changes, candidates include unchanged PDRs; the manager determines
+// When QFI, MBR or GBR changes, candidates include unchanged PDRs; the manager determines
 // which ones reference the changed QER while reading their QER IDs once.
 // The caller serializes the view's lifetime. Reference and field validation
 // remain owned by the existing PFCP layer.
 type RuleView interface {
 	QER(uint32) (*rules.QERConfig, bool)
-	QFIUpdated(uint32) bool
+	QoSUpdated(uint32) bool
 	RangeQoSCandidates(func(uint16, *rules.PDRConfig, bool) error) error
 	RangeRemovedPDR(func(uint16) error) error
 }

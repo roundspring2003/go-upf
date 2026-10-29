@@ -6,6 +6,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/free5gc/go-upf/internal/logger"
+	qosconfig "github.com/free5gc/go-upf/internal/qos_manager/config"
 )
 
 const (
@@ -25,10 +26,11 @@ type Config struct {
 	QoS         *QoS      `yaml:"qos"         valid:"optional"`
 }
 
-// QoS describes deployment egress interfaces, not an enable/disable mode.
+// QoS selects an experiment mode and its deployment egress interfaces.
 type QoS struct {
-	N3Egress string `yaml:"n3Egress" valid:"required"`
-	N6Egress string `yaml:"n6Egress" valid:"required"`
+	qosconfig.Config `yaml:",inline" valid:"optional"`
+	N3Egress         string `yaml:"n3Egress" valid:"required"`
+	N6Egress         string `yaml:"n6Egress" valid:"required"`
 }
 
 type Pfcp struct {

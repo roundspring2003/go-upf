@@ -16,6 +16,7 @@ type testView struct {
 	qers                 map[uint32]*rules.QERConfig
 	affected             map[uint16]bool // nil visits all PDRs as changed; false marks an unchanged candidate
 	qfiUpdated           map[uint32]bool
+	qosUpdated           map[uint32]bool
 	removed              []uint16
 	err                  error
 	rangeCalls, qerReads int
@@ -29,7 +30,7 @@ func (v *testView) QER(id uint32) (*rules.QERConfig, bool) {
 	return q, ok
 }
 
-func (v *testView) QFIUpdated(id uint32) bool { return v.qfiUpdated[id] }
+func (v *testView) QoSUpdated(id uint32) bool { return v.qfiUpdated[id] || v.qosUpdated[id] }
 
 func (v *testView) RangeQoSCandidates(visit func(uint16, *rules.PDRConfig, bool) error) error {
 	v.rangeCalls++

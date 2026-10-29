@@ -50,7 +50,7 @@ func TestQoSEgressPublication(t *testing.T) {
 	b.events = nil
 	b.removed = nil
 	modifyQoSSession(t, d, transport, s, ie.NewUpdateQER(ie.NewQERID(7), ie.NewQFI(6)))
-	require.Equal(t, []string{"binding"}, b.events, "QFI does not change TC class or map")
+	require.Equal(t, []string{"map", "binding"}, b.events, "QFI may move a policy to another flow class")
 	b.events = nil
 	b.fail = true
 	modifyQoSSession(t, d, transport, s, ie.NewUpdatePDR(ie.NewPDRID(11),
