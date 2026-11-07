@@ -26,6 +26,7 @@ func runTC(args ...string) error {
 
 type flowKey struct {
 	iface     string
+	slice     string
 	seid      uint64
 	direction rules.Direction
 	qfi       uint8
@@ -35,7 +36,7 @@ type flowKey struct {
 }
 
 func keyFor(p rules.Policy) flowKey {
-	k := flowKey{iface: p.Target.Egress, seid: p.Key.SEID, direction: p.Direction, service: serviceMinor(p)}
+	k := flowKey{iface: p.Target.Egress, slice: p.Target.Slice, seid: p.Key.SEID, direction: p.Direction, service: serviceMinor(p)}
 	if p.QFI != nil {
 		k.qfi, k.hasQFI = *p.QFI, true
 	} else {
@@ -45,9 +46,11 @@ func keyFor(p rules.Policy) flowKey {
 }
 
 type classAssignment struct {
-	iface string
-	minor uint16
-	flow  flowKey
+	dedicated bool
+	parent    uint16
+	iface     string
+	minor     uint16
+	flow      flowKey
 }
 
 func (a classAssignment) id() uint32 { return qdiscMajor | uint32(a.minor) }
@@ -56,6 +59,7 @@ type flowClass struct {
 	assignment classAssignment
 	members    map[uint32]rules.Policy
 	rate, ceil uint64
+	capacity   uint64
 	parent     uint16
 }
 
@@ -67,16 +71,19 @@ type classUpdate struct {
 }
 
 type classManager struct {
-	run     tcRunner
-	cfg     qosconfig.Config
-	roots   []string
-	active  map[uint32]classAssignment
-	pending map[uint32]classUpdate
-	flows   map[flowKey]*flowClass
-	used    map[string]map[uint16]bool
-	stale   []classAssignment
-	totals  map[string]map[uint16]uint64
-	dirty   map[flowKey]bool
+	groups     map[string]map[string]sliceClasses
+	byKey      map[rules.PDRKey]uint32
+	policyKeys map[uint32]rules.PDRKey
+	run        tcRunner
+	cfg        qosconfig.Config
+	roots      []string
+	active     map[uint32]classAssignment
+	pending    map[uint32]classUpdate
+	flows      map[flowKey]*flowClass
+	used       map[string]map[uint16]bool
+	stale      []classAssignment
+	totals     map[string]map[uint16]uint64
+	dirty      map[flowKey]bool
 }
 
 func openClasses(names []string, run tcRunner, options ...qosconfig.Config) (*classManager, error) {
@@ -91,7 +98,7 @@ func openClasses(names []string, run tcRunner, options ...qosconfig.Config) (*cl
 	if err := cfg.ValidateEgresses(names); err != nil {
 		return nil, err
 	}
-	m := &classManager{totals: make(map[string]map[uint16]uint64), dirty: make(map[flowKey]bool), run: run, cfg: cfg, active: make(map[uint32]classAssignment), pending: make(map[uint32]classUpdate), flows: make(map[flowKey]*flowClass), used: make(map[string]map[uint16]bool)}
+	m := &classManager{groups: make(map[string]map[string]sliceClasses), byKey: make(map[rules.PDRKey]uint32), policyKeys: make(map[uint32]rules.PDRKey), totals: make(map[string]map[uint16]uint64), dirty: make(map[flowKey]bool), run: run, cfg: cfg, active: make(map[uint32]classAssignment), pending: make(map[uint32]classUpdate), flows: make(map[flowKey]*flowClass), used: make(map[string]map[uint16]bool)}
 	for _, name := range names {
 		budget := cfg.BudgetFor(name)
 		if err := run("qdisc", "add", "dev", name, "root", "handle", "e001:", "htb", "default", "4"); err != nil {
@@ -103,6 +110,14 @@ func openClasses(names []string, run tcRunner, options ...qosconfig.Config) (*cl
 		if err := m.htb("add", name, 1, 0, cfg.CapacityBps, cfg.CapacityBps, 0); err != nil {
 			return nil, errors.Join(err, m.Close())
 		}
+		m.groups[name] = make(map[string]sliceClasses)
+		if len(cfg.Slices) > 0 {
+			if err := m.openSlices(name); err != nil {
+				return nil, errors.Join(err, m.Close())
+			}
+			continue
+		}
+		m.groups[name][""] = sliceClasses{gbr: 2, be: 3, budget: qosconfig.SliceBudget{RateBps: cfg.CapacityBps, CeilBps: cfg.CapacityBps, GBRBps: budget.GBRBps, BEBps: budget.BEBps}}
 		for _, group := range []struct {
 			minor uint16
 			rate  uint64
@@ -114,7 +129,7 @@ func openClasses(names []string, run tcRunner, options ...qosconfig.Config) (*cl
 			if err := m.htb("add", name, group.minor, 1, group.rate, cfg.CapacityBps, group.prio); err != nil {
 				return nil, errors.Join(err, m.Close())
 			}
-			if cfg.Mode != qosconfig.PerFlowHTB || group.minor == fallbackMinor {
+			if !cfg.Mode.PerFlowClass(group.minor == 2) || group.minor == fallbackMinor {
 				if err := m.fq(name, group.minor); err != nil {
 					return nil, errors.Join(err, m.Close())
 				}
@@ -124,12 +139,23 @@ func openClasses(names []string, run tcRunner, options ...qosconfig.Config) (*cl
 	return m, nil
 }
 
+// htbBurstBytes retains four milliseconds of credit plus one 1600-byte
+// packet allowance. Explicit buckets tolerate delayed qdisc wakeups; tc's
+// automatic one-packet buckets can discard credit before the next run.
+// This is a credit window, not a timer interval. All classes use the same
+// window so admitted children fit within their parent's bucket capacities.
+func htbBurstBytes(bps uint64) uint64 {
+	// 4 ms / 8 bits per byte = 1/2000. Normalized rates are at most 1 Tbit/s.
+	return (bps+1999)/2000 + 1600
+}
+
 func (m *classManager) htb(operation, iface string, minor, parent uint16, rate, ceil uint64, prio int) error {
 	parentID := "e001:"
 	if parent != 0 {
 		parentID = fmt.Sprintf("e001:%x", parent)
 	}
-	return m.run("class", operation, "dev", iface, "parent", parentID, "classid", fmt.Sprintf("e001:%x", minor), "htb", "rate", fmt.Sprintf("%dbit", rate), "ceil", fmt.Sprintf("%dbit", ceil), "prio", fmt.Sprint(prio), "quantum", "1514")
+	return m.run("class", operation, "dev", iface, "parent", parentID, "classid", fmt.Sprintf("e001:%x", minor), "htb", "rate", fmt.Sprintf("%dbit", rate), "ceil", fmt.Sprintf("%dbit", ceil), "prio", fmt.Sprint(prio), "quantum", "1514",
+		"burst", fmt.Sprint(htbBurstBytes(rate)), "cburst", fmt.Sprint(htbBurstBytes(ceil)))
 }
 func (m *classManager) fq(iface string, minor uint16) error {
 	return m.run("qdisc", "add", "dev", iface, "parent", fmt.Sprintf("e001:%x", minor), "fq", "limit", "10000", "flow_limit", "1000", "horizon", fmt.Sprintf("%dms", m.cfg.HorizonMS), "horizon_drop")
@@ -161,20 +187,21 @@ func (m *classManager) Prepare(p rules.Policy) (uint32, bool, error) {
 	if _, ok := m.used[iface]; !ok {
 		return 0, false, fmt.Errorf("TC egress %s is not attached", iface)
 	}
-	if p.Target.Slice != "" {
-		return 0, false, fmt.Errorf("TC modes currently support one local hierarchy, not slice %q", p.Target.Slice)
+	parent, serviceBudget, capacity, err := m.serviceFor(p)
+	if err != nil {
+		return 0, false, err
 	}
-	budget := m.cfg.BudgetFor(iface)
-	if p.GBR() > budget.GBRBps {
-		return 0, false, fmt.Errorf("flow GBR exceeds fixed service budget on %s", iface)
+	if p.GBR() > serviceBudget {
+		return 0, false, fmt.Errorf("flow GBR exceeds slice/service budget on %s", iface)
 	}
-	a := classAssignment{iface: iface, minor: serviceMinor(p)}
-	if m.cfg.Mode != qosconfig.PerFlowHTB {
+	a := classAssignment{iface: iface, minor: parent, parent: parent}
+	if !m.cfg.Mode.PerFlowClass(p.GBR() > 0) {
 		m.pending[p.ID] = classUpdate{assignment: a, policy: p}
 		return a.id(), false, nil
 	}
 	k := keyFor(p)
 	a.flow = k
+	a.dedicated = true
 	f := m.flows[k]
 	members := map[uint32]rules.Policy{p.ID: p}
 	if f != nil {
@@ -184,24 +211,20 @@ func (m *classManager) Prepare(p rules.Policy) (uint32, bool, error) {
 			}
 		}
 	}
-	rate, ceil := flowRates(members, m.cfg.CapacityBps)
+	rate, ceil := flowRates(members, capacity)
 	if rate > ceil {
 		return 0, false, fmt.Errorf("flow GBR exceeds its MBR/capacity")
 	}
 	// Avoid claiming guarantees after over-admission. Shared modes intentionally
 	// do not make a per-flow guarantee; their class budget is fixed.
-	total := m.totals[iface][serviceMinor(p)]
+	total := m.totals[iface][parent]
 	if f != nil {
 		total -= f.rate
 	}
 	if old, ok := m.active[p.ID]; ok && old.flow != k && old.iface == iface {
-		if other := m.flows[old.flow]; other != nil && other.parent == serviceMinor(p) && len(other.members) == 1 {
+		if other := m.flows[old.flow]; other != nil && other.parent == parent && len(other.members) == 1 {
 			total -= other.rate
 		}
-	}
-	serviceBudget := budget.BEBps
-	if p.GBR() > 0 {
-		serviceBudget = budget.GBRBps
 	}
 	if total+rate > serviceBudget {
 		return 0, false, fmt.Errorf("flow rates exceed service budget on %s", iface)
@@ -216,6 +239,7 @@ func (m *classManager) Prepare(p rules.Policy) (uint32, bool, error) {
 			}
 		}
 	} else {
+		a.minor = 0
 		for minor := uint32(firstFlowMinor); minor < 0xffff; minor++ {
 			if !m.used[iface][uint16(minor)] {
 				a.minor = uint16(minor)
@@ -225,7 +249,7 @@ func (m *classManager) Prepare(p rules.Policy) (uint32, bool, error) {
 		if a.minor < firstFlowMinor {
 			return 0, false, fmt.Errorf("TC class IDs exhausted on %s", iface)
 		}
-		if err := m.htb("add", iface, a.minor, serviceMinor(p), rate, ceil, 0); err != nil {
+		if err := m.htb("add", iface, a.minor, parent, rate, ceil, 0); err != nil {
 			return 0, false, err
 		}
 		m.used[iface][a.minor] = true
@@ -247,7 +271,7 @@ func (m *classManager) Rollback(id uint32, _ bool) error {
 	if u.created {
 		err = m.deleteClass(u.assignment)
 	} else if u.oldRate != 0 {
-		err = m.htb("change", u.assignment.iface, u.assignment.minor, serviceMinor(u.policy), u.oldRate, u.oldCeil, 0)
+		err = m.htb("change", u.assignment.iface, u.assignment.minor, u.assignment.parent, u.oldRate, u.oldCeil, 0)
 	}
 	if err == nil {
 		delete(m.pending, id)
@@ -263,15 +287,18 @@ func (m *classManager) Commit(id uint32) {
 		m.release(id, old)
 	}
 	m.active[id] = u.assignment
-	if m.cfg.Mode == qosconfig.PerFlowHTB {
+	m.byKey[u.policy.Key] = id
+	m.policyKeys[id] = u.policy.Key
+	if u.assignment.dedicated {
 		f := m.flows[u.assignment.flow]
 		if f == nil {
-			f = &flowClass{assignment: u.assignment, members: make(map[uint32]rules.Policy), parent: serviceMinor(u.policy)}
+			_, _, capacity, _ := m.serviceFor(u.policy)
+			f = &flowClass{assignment: u.assignment, members: make(map[uint32]rules.Policy), parent: u.assignment.parent, capacity: capacity}
 			m.flows[u.assignment.flow] = f
 		}
 		f.members[id] = u.policy
 		m.totals[f.assignment.iface][f.parent] -= f.rate
-		f.rate, f.ceil = flowRates(f.members, m.cfg.CapacityBps)
+		f.rate, f.ceil = flowRates(f.members, f.capacity)
 		m.totals[f.assignment.iface][f.parent] += f.rate
 		delete(m.dirty, u.assignment.flow)
 	}
@@ -299,7 +326,7 @@ func flowRates(members map[uint32]rules.Policy, capacity uint64) (rate, ceil uin
 	return
 }
 func (m *classManager) release(id uint32, a classAssignment) {
-	if m.cfg.Mode != qosconfig.PerFlowHTB {
+	if !a.dedicated {
 		return
 	}
 	f := m.flows[a.flow]
@@ -316,7 +343,7 @@ func (m *classManager) release(id uint32, a classAssignment) {
 	}
 	// A deleted stricter member may leave a conservative cap. Recalculate before
 	// returning success so a remaining flow does not retain that stale cap.
-	rate, ceil := flowRates(f.members, m.cfg.CapacityBps)
+	rate, ceil := flowRates(f.members, f.capacity)
 	if err := m.htb("change", a.iface, a.minor, f.parent, rate, ceil, 0); err == nil {
 		m.totals[a.iface][f.parent] -= f.rate
 		f.rate, f.ceil = rate, ceil
@@ -333,6 +360,8 @@ func (m *classManager) Delete(id uint32) error {
 		}
 	}
 	if a, ok := m.active[id]; ok {
+		delete(m.byKey, m.policyKeys[id])
+		delete(m.policyKeys, id)
 		m.release(id, a)
 		delete(m.active, id)
 	}
@@ -350,7 +379,7 @@ func (m *classManager) cleanStale() error {
 	m.stale = kept
 	for key := range m.dirty {
 		f := m.flows[key]
-		rate, ceil := flowRates(f.members, m.cfg.CapacityBps)
+		rate, ceil := flowRates(f.members, f.capacity)
 		if err := m.htb("change", key.iface, f.assignment.minor, f.parent, rate, ceil, 0); err != nil {
 			errs = append(errs, err)
 			continue

@@ -145,6 +145,11 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 				target, found = m.target(key, p.Direction)
 			}
 			if found && target.Egress != "" {
+				if backend, ok := m.egress.(interface{ UsesSlices() bool }); ok && backend.UsesSlices() {
+					if session, ok := view.(interface{ QoSSlice() string }); ok {
+						target.Slice = session.QoSSlice()
+					}
+				}
 				p.Target = &target
 			}
 			// With an egress backend, only its successful publication supplies
@@ -175,7 +180,16 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 	if err != nil {
 		return nil, err
 	}
-	if validator, ok := m.egress.(interface{ ValidateQoSPolicies([]rules.Policy) error }); ok {
+	// Validate and publish in the same deterministic order.
+	slices.SortFunc(plan.policies, func(a, b rules.Policy) int { return cmp.Compare(a.Key.PDRID, b.Key.PDRID) })
+	slices.SortFunc(plan.removed, func(a, b rules.PDRKey) int { return cmp.Compare(a.PDRID, b.PDRID) })
+	if validator, ok := m.egress.(interface {
+		ValidateQoSChanges([]rules.Policy, []rules.PDRKey) error
+	}); ok {
+		if err := validator.ValidateQoSChanges(plan.policies, plan.removed); err != nil {
+			return nil, err
+		}
+	} else if validator, ok := m.egress.(interface{ ValidateQoSPolicies([]rules.Policy) error }); ok {
 		if err := validator.ValidateQoSPolicies(plan.policies); err != nil {
 			return nil, err
 		}
@@ -183,9 +197,6 @@ func (m *Manager) Prepare(seid uint64, view RuleView) (*Prepared, error) {
 	if needed > 0 && m.nextPolicy+needed-1 > uint64(MaxPolicyID) {
 		return nil, ErrIDExhausted
 	}
-	//this is to ensure that the order of policies and removed policies is consistent for testing and debugging
-	slices.SortFunc(plan.policies, func(a, b rules.Policy) int { return cmp.Compare(a.Key.PDRID, b.Key.PDRID) })
-	slices.SortFunc(plan.removed, func(a, b rules.PDRKey) int { return cmp.Compare(a.PDRID, b.PDRID) })
 	return plan, nil
 }
 

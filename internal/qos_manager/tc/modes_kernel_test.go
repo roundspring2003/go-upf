@@ -26,11 +26,12 @@ func TestTCModesNetworkNamespace(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	defer exec.Command("ip", "link", "del", "qos-mode-test").Run()
-	for _, mode := range []qosconfig.Mode{qosconfig.PerFlowHTB, qosconfig.SharedHTB, qosconfig.SharedHTBEDT} {
+	for _, mode := range []qosconfig.Mode{qosconfig.PerFlowHTB, qosconfig.PerFlowHTBEDT, qosconfig.SharedHTB, qosconfig.SharedHTBEDT, qosconfig.HybridHTBEDT} {
 		t.Run(string(mode), func(t *testing.T) {
 			e, err := OpenTCEgress([]string{"qos-mode-test"}, qosconfig.Config{Mode: mode})
 			require.NoError(t, err)
 			defer e.Close()
+			require.Equal(t, mode.UsesEDT(), e.rates != nil)
 			p := testPolicy(1, "qos-mode-test")
 			p.Rates = []rules.QoSRate{{QERID: 1, MBRBps: 5_000_000, GBRBps: 2_000_000}}
 			gbr, err := e.PutQoSPolicy(p)
@@ -40,7 +41,7 @@ func TestTCModesNetworkNamespace(t *testing.T) {
 			require.NotEqual(t, gbr, be)
 			be2, err := e.PutQoSPolicy(testPolicy(3, "qos-mode-test"))
 			require.NoError(t, err)
-			if mode == qosconfig.PerFlowHTB {
+			if mode.PerFlowClass(false) {
 				require.NotEqual(t, be, be2)
 			} else {
 				require.Equal(t, be, be2)
@@ -49,8 +50,10 @@ func TestTCModesNetworkNamespace(t *testing.T) {
 			require.NoError(t, err)
 			classes := strings.Split(strings.TrimSpace(string(data)), "\n")
 			expected := 4
-			if mode == qosconfig.PerFlowHTB {
+			if mode.PerFlowClass(false) {
 				expected += 3
+			} else if mode.PerFlowClass(true) {
+				expected++
 			}
 			require.Len(t, classes, expected)
 			require.NoError(t, e.DeleteQoSPolicy(2))

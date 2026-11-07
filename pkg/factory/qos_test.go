@@ -78,3 +78,11 @@ func TestProjectQoSConfig(t *testing.T) {
 	require.Equal(t, "enp0s8", cfg.QoS.N3Egress)
 	require.Equal(t, "enp0s9", cfg.QoS.N6Egress)
 }
+
+func TestReadSliceExample(t *testing.T) {
+	cfg, err := ReadConfig("../../config/upfcfg.slices.yaml")
+	require.NoError(t, err)
+	require.Len(t, cfg.QoS.Slices, 2)
+	require.Equal(t, uint64(60_000_000), cfg.QoS.Slices["1-010203"].RateBps)
+	require.Equal(t, uint64(0), cfg.QoS.GBRBps)
+}

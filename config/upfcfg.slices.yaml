@@ -1,0 +1,62 @@
+version: 1.0.3
+description: FlowQoS UPF configuration for the two-VM lab
+
+# SMF and UPF run in the same VM/network namespace.
+pfcp:
+  addr: 127.0.0.8
+  nodeID: 127.0.0.8
+  retransTimeout: 1s
+  maxRetrans: 3
+
+gtpu:
+  forwarder: gtp5g
+  ifList:
+    # Matches the N3 endpoint advertised by the SMF.
+    - addr: 192.168.56.103
+      type: N3
+
+dnnList:
+  - dnn: internet
+    cidr: 10.60.0.0/16
+  - dnn: internet
+    cidr: 10.61.0.0/16
+
+# Experimental fixed slice budgets. Restart/refresh before each run.
+# SMF must send the session S-NSSAI; missing/unknown identities are rejected
+# when installing an otherwise valid UL/DL QoS policy.
+qos:
+  mode: hybrid-htb-edt # Comparison: per-flow-htb-edt
+  n3Egress: enp0s8
+  n6Egress: enp0s9
+  capacityBps: 100000000
+  fallbackBps: 1000000
+  horizonMs: 1000
+  # Canonical key: decimal SST + lowercase six-digit hexadecimal SD.
+  # Use "1" for SST=1 with absent SD. QFI is not a slice identifier.
+  # Sum of slice rates + fallback <= capacity, independently on N3/N6.
+  slices:
+    "1-010203":
+      rateBps: 60000000
+      ceilBps: 60000000 # Equal to rate: strict slice cap. Raise to test borrowing.
+      gbrBps: 20000000
+      beBps: 40000000
+      # Optional full per-egress overrides (UL=N6, DL=N3):
+      # egressBudgets:
+      #   enp0s8:
+      #     rateBps: 60000000
+      #     ceilBps: 60000000
+      #     gbrBps: 12000000
+      #     beBps: 48000000
+    "1-112233":
+      rateBps: 39000000
+      ceilBps: 39000000
+      gbrBps: 10000000
+      beBps: 29000000
+# GBR flow reservations must fit their slice's GBR budget.
+# Non-GBR shares a leaf within each slice; per-QER EDT remains unchanged.
+# This example does not configure SMF/UE slice subscriptions or routing.
+
+logger:
+  enable: true
+  level: info
+  reportCaller: false

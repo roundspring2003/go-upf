@@ -24,6 +24,7 @@ type URRInfo struct {
 }
 
 type Session struct {
+	SNSSAI string // Canonical PFCP session slice identity; fixed once assigned.
 	// Cleanup state is owned by this Session and the PFCP event loop.
 	closing           bool
 	cleanupRetryAt    time.Time

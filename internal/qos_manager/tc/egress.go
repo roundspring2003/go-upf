@@ -7,6 +7,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	"github.com/free5gc/go-upf/internal/logger"
 	qosconfig "github.com/free5gc/go-upf/internal/qos_manager/config"
 	"github.com/free5gc/go-upf/internal/rules"
 )
@@ -44,7 +45,7 @@ func OpenTCEgress(names []string, options ...qosconfig.Config) (*TCEgress, error
 		return nil, err
 	}
 	spec := qosEgressSpec()
-	if cfg.Mode == qosconfig.SharedHTBEDT {
+	if cfg.Mode.UsesEDT() {
 		addEDT(spec, cfg.HorizonMS)
 	}
 	objects, err := ebpf.NewCollection(spec)
@@ -52,7 +53,7 @@ func OpenTCEgress(names []string, options ...qosconfig.Config) (*TCEgress, error
 		return nil, fmt.Errorf("load BPF: %w", err)
 	}
 	e := &TCEgress{objects: objects, interfaces: make(map[string]uint32)}
-	if cfg.Mode == qosconfig.SharedHTBEDT {
+	if cfg.Mode.UsesEDT() {
 		e.rates = newRateManager(objects)
 	}
 	var unique []string
@@ -80,6 +81,13 @@ func OpenTCEgress(names []string, options ...qosconfig.Config) (*TCEgress, error
 		}
 		e.links = append(e.links, attached)
 	}
+	if e.UsesSlices() {
+		for _, name := range unique {
+			for slice, group := range e.classes.groups[name] {
+				logger.FwderLog.Infof("TC slice ready: egress=%s snssai=%s parent=e001:%x gbr=e001:%x be=e001:%x rate=%d ceil=%d", name, slice, group.parent, group.gbr, group.be, group.budget.RateBps, group.budget.CeilBps)
+			}
+		}
+	}
 	return e, nil
 }
 
@@ -97,16 +105,26 @@ func (e *TCEgress) Close() error {
 // ValidateQoSPolicies checks datapath bounds during PFCP validation, before
 // forwarding or TC is changed. It visits derived rates, not PDR.QERIDs again.
 func (e *TCEgress) ValidateQoSPolicies(policies []rules.Policy) error {
+	if err := e.classes.validateChanges(policies, nil); err != nil {
+		return err
+	}
+	return e.validateRatePolicies(policies)
+}
+
+func (e *TCEgress) UsesSlices() bool { return len(e.classes.cfg.Slices) > 0 }
+
+func (e *TCEgress) ValidateQoSChanges(policies []rules.Policy, removed []rules.PDRKey) error {
+	if err := e.classes.validateChanges(policies, removed); err != nil {
+		return err
+	}
+	return e.validateRatePolicies(policies)
+}
+
+func (e *TCEgress) validateRatePolicies(policies []rules.Policy) error {
 	added := make(map[rateKey]map[uint32]bool)
 	for _, p := range policies {
 		if p.Target == nil {
 			continue
-		}
-		if p.Target.Slice != "" {
-			return fmt.Errorf("TC modes currently support one local hierarchy, not slice %q", p.Target.Slice)
-		}
-		if p.GBR() > e.classes.cfg.BudgetFor(p.Target.Egress).GBRBps {
-			return fmt.Errorf("PDR %d GBR exceeds the configured GBR service budget", p.Key.PDRID)
 		}
 		if e.rates == nil {
 			continue

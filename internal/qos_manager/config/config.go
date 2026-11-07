@@ -6,21 +6,33 @@ import "fmt"
 type Mode string
 
 const (
-	PerFlowHTB   Mode = "per-flow-htb"
-	SharedHTB    Mode = "shared-htb"
-	SharedHTBEDT Mode = "shared-htb-edt"
+	PerFlowHTB    Mode = "per-flow-htb"
+	PerFlowHTBEDT Mode = "per-flow-htb-edt"
+	SharedHTB     Mode = "shared-htb"
+	SharedHTBEDT  Mode = "shared-htb-edt"
+	HybridHTBEDT  Mode = "hybrid-htb-edt"
 )
 
-// Config applies independently to each egress. This first implementation has
-// one local service hierarchy per interface; it does not infer S-NSSAI from QFI.
+func (m Mode) UsesEDT() bool {
+	return m == PerFlowHTBEDT || m == SharedHTBEDT || m == HybridHTBEDT
+}
+
+// PerFlowClass selects dedicated leaf classes. Hybrid keeps Non-GBR shared.
+func (m Mode) PerFlowClass(gbr bool) bool {
+	return m == PerFlowHTB || m == PerFlowHTBEDT || (m == HybridHTBEDT && gbr)
+}
+
+// Config applies independently to each egress. Optional slices partition the
+// hierarchy by the session S-NSSAI; QFI never identifies a slice.
 // All rates are bits/second and all modes use the same FQ leaf parameters.
 type Config struct {
-	Mode        Mode   `yaml:"mode" valid:"optional"`
-	CapacityBps uint64 `yaml:"capacityBps" valid:"optional"`
-	GBRBps      uint64 `yaml:"gbrBps" valid:"optional"`
-	BEBps       uint64 `yaml:"beBps" valid:"optional"`
-	FallbackBps uint64 `yaml:"fallbackBps" valid:"optional"`
-	HorizonMS   uint32 `yaml:"horizonMs" valid:"optional"`
+	Slices      map[string]SliceConfig `yaml:"slices,omitempty" valid:"optional"`
+	Mode        Mode                   `yaml:"mode" valid:"optional"`
+	CapacityBps uint64                 `yaml:"capacityBps" valid:"optional"`
+	GBRBps      uint64                 `yaml:"gbrBps" valid:"optional"`
+	BEBps       uint64                 `yaml:"beBps" valid:"optional"`
+	FallbackBps uint64                 `yaml:"fallbackBps" valid:"optional"`
+	HorizonMS   uint32                 `yaml:"horizonMs" valid:"optional"`
 	// EgressBudgets are fixed at startup. Experiment preparation may assign
 	// different UL (N6) and DL (N3) budgets without runtime rate adjustment.
 	EgressBudgets map[string]ClassBudget `yaml:"egressBudgets,omitempty" valid:"optional"`
@@ -41,7 +53,16 @@ func (c Config) BudgetFor(egress string) ClassBudget {
 
 // ValidateEgresses catches misspelled override names before installing TC.
 func (c Config) ValidateEgresses(names []string) error {
+	namesToCheck := make(map[string]bool)
 	for name := range c.EgressBudgets {
+		namesToCheck[name] = true
+	}
+	for _, slice := range c.Slices {
+		for name := range slice.EgressBudgets {
+			namesToCheck[name] = true
+		}
+	}
+	for name := range namesToCheck {
 		found := false
 		for _, attached := range names {
 			found = found || name == attached
@@ -58,12 +79,15 @@ func (c Config) Normalize() (Config, error) {
 		c.Mode = PerFlowHTB
 	}
 	switch c.Mode {
-	case PerFlowHTB, SharedHTB, SharedHTBEDT:
+	case PerFlowHTB, PerFlowHTBEDT, SharedHTB, SharedHTBEDT, HybridHTBEDT:
 	default:
 		return c, fmt.Errorf("unknown qos.mode %q", c.Mode)
 	}
 	if c.CapacityBps == 0 {
 		c.CapacityBps = 1_000_000_000
+	}
+	if len(c.Slices) > 0 {
+		return c.normalizeSlices()
 	}
 	if c.GBRBps == 0 && c.BEBps == 0 && c.FallbackBps == 0 {
 		c.GBRBps = c.CapacityBps / 2

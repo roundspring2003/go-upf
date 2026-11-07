@@ -1,6 +1,8 @@
 package pfcp
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/wmnsk/go-pfcp/ie"
 	"github.com/wmnsk/go-pfcp/message"
@@ -49,7 +51,11 @@ func (s *Session) ParseEstablishmentChanges(req *message.SessionEstablishmentReq
 	if req == nil {
 		return nil, errors.Wrap(ErrMissingMandatoryIE, "nil SessionEstablishmentRequest")
 	}
-	changes := &rules.RuleChangeSet{SEID: s.LocalID}
+	slice, err := parseSessionSlice(req.SNSSAI)
+	if err != nil {
+		return nil, err
+	}
+	changes := &rules.RuleChangeSet{SEID: s.LocalID, SNSSAI: slice}
 	if err := appendRuleChanges(
 		&changes.CreateFARs,
 		"CreateFAR",
@@ -106,7 +112,11 @@ func (s *Session) ParseModificationChanges(req *message.SessionModificationReque
 	if req == nil {
 		return nil, errors.Wrap(ErrMissingMandatoryIE, "nil SessionModificationRequest")
 	}
-	changes := &rules.RuleChangeSet{SEID: s.LocalID}
+	slice, err := parseSessionSlice(req.SNSSAI)
+	if err != nil {
+		return nil, err
+	}
+	changes := &rules.RuleChangeSet{SEID: s.LocalID, SNSSAI: slice}
 	if err := appendRuleChanges(
 		&changes.CreateFARs,
 		"CreateFAR",
@@ -258,4 +268,27 @@ func (s *Session) ParseModificationChanges(req *message.SessionModificationReque
 		return nil, err
 	}
 	return changes, nil
+}
+
+func parseSessionSlice(i *ie.IE) (*string, error) {
+	if i == nil {
+		return nil, nil
+	}
+	// TS 29.244 S-NSSAI IE has SST (1 octet) and SD (3 octets).
+	if i.Type != ie.SNSSAI || len(i.Payload) != 4 {
+		return nil, fmt.Errorf("%w: invalid S-NSSAI IE", ErrMissingMandatoryIE)
+	}
+	sst, err := i.SST()
+	if err != nil {
+		return nil, err
+	}
+	sd, err := i.SD()
+	if err != nil {
+		return nil, err
+	}
+	key := fmt.Sprintf("%d-%06x", sst, sd)
+	if sd == 0xffffff {
+		key = fmt.Sprint(sst)
+	}
+	return &key, nil
 }

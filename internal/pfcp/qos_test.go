@@ -36,7 +36,7 @@ func qosDispatcher(t *testing.T, egress ...*factory.QoS) (*Dispatcher, *messageT
 	return d, transport, hook
 }
 
-func establishQoSSession(t *testing.T, d *Dispatcher, transport *messageTransportMock) *Session {
+func establishQoSSession(t *testing.T, d *Dispatcher, transport *messageTransportMock, extra ...*ie.IE) *Session {
 	t.Helper()
 	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 8805}
 	d.node.EstablishAssociation("127.0.0.2", addr)
@@ -53,6 +53,11 @@ func establishQoSSession(t *testing.T, d *Dispatcher, transport *messageTranspor
 		ie.NewCreateQER(ie.NewQERID(7), ie.NewGateStatus(0, 0), ie.NewQFI(5)),
 		ie.NewCreateQER(ie.NewQERID(8), ie.NewGateStatus(0, 0), ie.NewQFI(9)),
 		ie.NewCreateQER(ie.NewQERID(9), ie.NewGateStatus(0, 0), ie.NewMBR(60000, 30000)))
+	for _, i := range extra {
+		if i.Type == ie.SNSSAI {
+			req.SNSSAI = i
+		}
+	}
 	// Exercise decoding and the production dispatcher/parser/validation/apply path.
 	buf := make([]byte, req.MarshalLen())
 	require.NoError(t, req.MarshalTo(buf))

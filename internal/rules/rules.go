@@ -119,6 +119,7 @@ type BARPatch BARConfig
 
 // RuleChangeSet owns decoded values; it retains no request payload or backend data.
 type RuleChangeSet struct {
+	SNSSAI     *string // nil means unchanged/absent; canonical SST[-SD] from PFCP.
 	SEID       uint64
 	CreatePDRs []PDRConfig
 	CreateFARs []FARConfig

@@ -74,6 +74,7 @@ func (s *Session) applyRuleChanges(changes *rules.RuleChangeSet, establish bool)
 // changes memory: no parsing, patch merging, datapath calls or report generation.
 func (state *RuleState) Commit() {
 	s := state.sess
+	s.SNSSAI = state.snssai
 	for id, c := range state.farOverrides {
 		n := c.Clone()
 		s.FARIDs[id] = &n

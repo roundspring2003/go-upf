@@ -6,7 +6,7 @@ import (
 )
 
 func TestModeConfiguration(t *testing.T) {
-	for _, mode := range []Mode{PerFlowHTB, SharedHTB, SharedHTBEDT} {
+	for _, mode := range []Mode{PerFlowHTB, PerFlowHTBEDT, SharedHTB, SharedHTBEDT, HybridHTBEDT} {
 		c, err := (Config{Mode: mode, CapacityBps: 30_000_000, GBRBps: 20_000_000, BEBps: 9_000_000, FallbackBps: 1_000_000}).Normalize()
 		require.NoError(t, err)
 		require.Equal(t, mode, c.Mode)

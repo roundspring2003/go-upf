@@ -15,6 +15,7 @@ import (
 // Views are read-only; the caller must serialize validation, execution and commit
 // against other changes to the same session.
 type RuleState struct {
+	snssai         string
 	sess           *Session
 	qosPlan        *qosmanager.Prepared
 	urrRefDeltas   map[uint32]int
@@ -41,7 +42,13 @@ func (s *Session) ValidateRuleState(changes *rules.RuleChangeSet) (*RuleState, e
 	if changes.SEID != s.LocalID {
 		return nil, errors.Wrap(ErrRuleCreationModificationFailed, "session ID mismatch")
 	}
-	state := &RuleState{sess: s}
+	state := &RuleState{sess: s, snssai: s.SNSSAI}
+	if changes.SNSSAI != nil {
+		if *changes.SNSSAI != s.SNSSAI && (s.SNSSAI != "" || len(s.PDRIDs) != 0) {
+			return nil, fmt.Errorf("%w: session S-NSSAI is immutable; recreate the session", ErrRuleCreationModificationFailed)
+		}
+		state.snssai = *changes.SNSSAI
+	}
 	if err := state.validateOperations(changes); err != nil {
 		return nil, err
 	}
@@ -505,3 +512,5 @@ func uint32Set(ids []uint32) map[uint32]struct{} {
 	}
 	return set
 }
+
+func (state *RuleState) QoSSlice() string { return state.snssai }
